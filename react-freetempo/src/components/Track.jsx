@@ -3,6 +3,18 @@ import * as Tone from 'tone';
 import { useData } from '../stores/useData';
 import { synthMap } from '../audio/synthMap';
 
+function createInstrument(font) {
+    if (font.type === 'sampler') {
+        return new Tone.Sampler({
+            urls: font.urls,
+            baseUrl: font.baseUrl,
+            release: 1,
+        }).toDestination();
+    } else {
+        return new Tone.PolySynth(synthMap[font.type]).toDestination();
+    }
+}
+
 const Track = () => {
     const soundFontList = useData((state) => state.soundFontList);
     const currentSoundFontId = useData((state) => state.currentSoundFontId);
@@ -10,7 +22,7 @@ const Track = () => {
     const synthRef = useRef(null);
 
     useEffect(() => {
-        const synth = new Tone.PolySynth(synthMap[currentFont.type]).toDestination();
+        const synth = createInstrument(currentFont);
         synthRef.current = synth;
         return () => {
             synth.releaseAll();
