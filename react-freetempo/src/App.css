@@ -1,0 +1,12 @@
+.track-note {
+    position: absolute;
+    z-index: 1;
+    background-color: lightgray;
+    color: rgba(0, 0, 0, 0);
+}
+
+.track-note.is-active {
+    background-color: black;
+    z-index: 4;
+    color: rgba(0, 0, 0, 0);
+}
