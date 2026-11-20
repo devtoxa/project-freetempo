@@ -1,4 +1,4 @@
-import { useData } from '../../stores/useData';
+import { useData } from '../stores/useData'
 
 const Info = () => {
     const midiList = useData((state) => state.midiList);
