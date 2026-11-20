@@ -6,10 +6,10 @@ const SoundFontSelector = () => {
     const setSoundFontId = useData((state) => state.setSoundFontId);
     return (
         <div>
-            <select value={currentSoundFontId}> onChange={(e) => setSoundFontId(e.target.value)}
+            <select onChange={(e) => setSoundFontId(e.target.value)} value={currentSoundFontId}>
                 {
                     soundFontList.map((soundFont) => (
-                        <option key={soundFont.id}>
+                        <option key={soundFont.id} value={soundFont.id}>
                             {soundFont.fontName}
                         </option>
                     ))
