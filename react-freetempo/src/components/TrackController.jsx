@@ -1,19 +1,15 @@
 import { useData } from '../stores/useData';
 
 const TrackController = () => {
+    const isAutoPlay = useData((state) => state.isAutoPlay);
     const currentStep = useData((state) => state.currentStep);
     const totalSteps = useData((state) => state.totalSteps);
-    const isAutoPlay = useData((state) => state.isAutoPlay);
     const startAutoPlay = useData((state) => state.startAutoPlay);
     const stopAutoPlay = useData((state) => state.stopAutoPlay);
     const seekToStep = useData((state) => state.seekToStep);
 
     const maxStep = Math.max(totalSteps - 1, 0);
-    const safeValue = Math.min(currentStep, maxStep);
-
-    const handleRangeChange = (e) => {
-        seekToStep(Number(e.target.value));
-    };
+    const safeStep = Math.min(currentStep, maxStep);
 
     return (
         <div className="track-controller">
@@ -34,13 +30,12 @@ const TrackController = () => {
             </button>
 
             <label className="track-controller-range">
-                <span>위치</span>
                 <input
                     type="range"
                     min={0}
                     max={maxStep}
-                    value={safeValue}
-                    onChange={handleRangeChange}
+                    value={safeStep}
+                    onChange={(e) => seekToStep(Number(e.target.value))}
                     disabled={totalSteps <= 1}
                 />
                 <span>

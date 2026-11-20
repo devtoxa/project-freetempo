@@ -70,12 +70,9 @@ export const useData = create((set) => ({
     soundFontList,
     currentSoundFontId: 1,
     currentMidiId: 1,
-    pixelsPerBeat: 80,
-    volume: -6,
 
     isAutoPlay: false,
     autoPlaySessionId: 0,
-
     currentStep: 0,
     totalSteps: 0,
     seekVersion: 0,
@@ -84,11 +81,18 @@ export const useData = create((set) => ({
     setMidiId: (id) =>
         set({
             currentMidiId: Number(id),
-            currentStep: 0,
             isAutoPlay: false,
+            currentStep: 0,
         }),
-    setPixelsPerBeat: (val) => set({ pixelsPerBeat: Number(val) }),
-    setVolume: (val) => set({ volume: Number(val) }),
+    addLocalMidi: ({ title, artist = 'Local File', url }) => {
+        const newId = Date.now();
+        set((state) => ({
+            midiList: [...state.midiList, { id: newId, title, artist, url }],
+            currentMidiId: newId,
+            isAutoPlay: false,
+            currentStep: 0,
+        }));
+    },
 
     startAutoPlay: () =>
         set((state) => ({
@@ -96,7 +100,6 @@ export const useData = create((set) => ({
             autoPlaySessionId: state.autoPlaySessionId + 1,
         })),
     stopAutoPlay: () => set({ isAutoPlay: false }),
-
     setCurrentStep: (step) => set({ currentStep: Math.max(0, Number(step) || 0) }),
     setTotalSteps: (total) => set({ totalSteps: Math.max(0, Number(total) || 0) }),
     seekToStep: (step) =>
