@@ -10,17 +10,17 @@ const Track = () => {
     const synthRef = useRef(null);
 
     useEffect(() => {
-        const SynthLoader = synthMap[currentFont.type]
-        const polySynth = new Tone.PolySynth(SynthLoader).toDestination();
+        const synth = new Tone.PolySynth(synthMap[currentFont.type]).toDestination();
+        synthRef.current = synth;
         return () => {
-            polySynth.releaseAll();
-            polySynth.dispose();
+            synth.releaseAll();
+            synth.dispose();
         };
 
     }, [currentFont.type])
     const handleTestSound = async () => {
         await Tone.start();
-        synthRef.current.triggerAttackRelease(['C4', 'E4', 'G4', '8n'])
+        synthRef.current.triggerAttackRelease(['C4', 'E4', 'G4'], '8n')
     }
     return (
         <div>

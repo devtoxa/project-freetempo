@@ -17,6 +17,6 @@ export const useData = create((set) => ({
     soundFontList,
     currentSoundFontId: 1,
     currentMidiId: 1,
-    setSoundFontId: (id) => set({ currentSoundFontId: id }),
-    setMidiId: (id) => set({ currentMidiId: id }),
+    setSoundFontId: (id) => set({ currentSoundFontId: Number(id) }),
+    setMidiId: (id) => set({ currentMidiId: Number(id) }),
 }));
