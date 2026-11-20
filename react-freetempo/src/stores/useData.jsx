@@ -1,9 +1,24 @@
 import { create } from 'zustand';
 
 const midiList = [
-    { id: 1, title: 'reminiscence', artist: 'nam-gu-min', url: '/midi/reminiscence-nam-gu-min.mid' },
-    { id: 2, title: 'second run', artist: 'nam-gu-min', url: '/midi/sekeondeu-leon-namgumin.mid' },
-    { id: 3, title: 'shining light', artist: 'djmax respect v', url: '/midi/syaining-laiteu.mid' },
+    {
+        id: 1,
+        title: 'reminiscence',
+        artist: 'nam-gu-min',
+        url: '/midi/reminiscence-nam-gu-min.mid',
+    },
+    {
+        id: 2,
+        title: 'second run',
+        artist: 'nam-gu-min',
+        url: '/midi/sekeondeu-leon-namgumin.mid',
+    },
+    {
+        id: 3,
+        title: 'shining light',
+        artist: 'djmax respect v',
+        url: '/midi/syaining-laiteu.mid',
+    },
 ];
 
 const soundFontList = [
@@ -45,34 +60,49 @@ const soundFontList = [
             C8: 'C8.mp3',
         },
     },
-    { id: 2, fontName: 'Soft Synth', type: 'am' },
-    // { id: 3, fontName: 'Synth', type: 'synth' },
-    // { id: 4, fontName: 'Electric Piano', type: 'fm' },
-
+    { id: 2, fontName: 'Synth', type: 'synth' },
+    { id: 3, fontName: 'Electric Piano', type: 'fm' },
+    { id: 4, fontName: 'Soft Synth', type: 'am' },
 ];
 
 export const useData = create((set) => ({
     midiList,
     soundFontList,
-    currentMidiId: 1,
     currentSoundFontId: 1,
+    currentMidiId: 1,
     pixelsPerBeat: 80,
     volume: -6,
+
     isAutoPlay: false,
     autoPlaySessionId: 0,
 
-    setMidiId: (id) => set({ currentMidiId: Number(id), isAutoPlay: false }),
-    setSoundFontId: (id) => set({ currentSoundFontId: Number(id) }),
-    setPixelsPerBeat: (value) => set({ pixelsPerBeat: Number(value) }),
-    setVolume: (value) => set({ volume: Number(value) }),
+    currentStep: 0,
+    totalSteps: 0,
+    seekVersion: 0,
 
-    toggleAutoPlay: () =>
-        set((state) => {
-            const nextActive = !state.isAutoPlay;
-            return {
-                isAutoPlay: nextActive,
-                autoPlaySessionId: nextActive ? state.autoPlaySessionId + 1 : state.autoPlaySessionId,
-            };
+    setSoundFontId: (id) => set({ currentSoundFontId: Number(id) }),
+    setMidiId: (id) =>
+        set({
+            currentMidiId: Number(id),
+            currentStep: 0,
+            isAutoPlay: false,
         }),
+    setPixelsPerBeat: (val) => set({ pixelsPerBeat: Number(val) }),
+    setVolume: (val) => set({ volume: Number(val) }),
+
+    startAutoPlay: () =>
+        set((state) => ({
+            isAutoPlay: true,
+            autoPlaySessionId: state.autoPlaySessionId + 1,
+        })),
     stopAutoPlay: () => set({ isAutoPlay: false }),
+
+    setCurrentStep: (step) => set({ currentStep: Math.max(0, Number(step) || 0) }),
+    setTotalSteps: (total) => set({ totalSteps: Math.max(0, Number(total) || 0) }),
+    seekToStep: (step) =>
+        set((state) => ({
+            currentStep: Math.max(0, Number(step) || 0),
+            isAutoPlay: false,
+            seekVersion: state.seekVersion + 1,
+        })),
 }));

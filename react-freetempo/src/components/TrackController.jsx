@@ -1,54 +1,54 @@
 import { useData } from '../stores/useData';
 
-export default function TrackController() {
+const TrackController = () => {
+    const currentStep = useData((state) => state.currentStep);
+    const totalSteps = useData((state) => state.totalSteps);
     const isAutoPlay = useData((state) => state.isAutoPlay);
-    const toggleAutoPlay = useData((state) => state.toggleAutoPlay);
-    const pixelsPerBeat = useData((state) => state.pixelsPerBeat);
-    const setPixelsPerBeat = useData((state) => state.setPixelsPerBeat);
-    const volume = useData((state) => state.volume);
-    const setVolume = useData((state) => state.setVolume);
+    const startAutoPlay = useData((state) => state.startAutoPlay);
+    const stopAutoPlay = useData((state) => state.stopAutoPlay);
+    const seekToStep = useData((state) => state.seekToStep);
 
-    const handleToggle = (e) => {
-        e.currentTarget.blur(); // 키보드 입력 시 버튼이 스페이스/엔터로 다시 눌리지 않도록 포커스 해제
-        toggleAutoPlay();
+    const maxStep = Math.max(totalSteps - 1, 0);
+    const safeValue = Math.min(currentStep, maxStep);
+
+    const handleRangeChange = (e) => {
+        seekToStep(Number(e.target.value));
     };
 
     return (
-        <div className="TrackController">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                <button type="button" onClick={handleToggle}>
-                    {isAutoPlay ? '자동 재생 정지' : '자동 재생'}
-                </button>
+        <div className="track-controller">
+            <button
+                type="button"
+                onClick={isAutoPlay ? stopAutoPlay : startAutoPlay}
+                disabled={totalSteps === 0}
+            >
+                {isAutoPlay ? '정지' : '자동 재생'}
+            </button>
+
+            <button
+                type="button"
+                onClick={() => seekToStep(0)}
+                disabled={totalSteps === 0}
+            >
+                처음으로
+            </button>
+
+            <label className="track-controller-range">
+                <span>위치</span>
+                <input
+                    type="range"
+                    min={0}
+                    max={maxStep}
+                    value={safeValue}
+                    onChange={handleRangeChange}
+                    disabled={totalSteps <= 1}
+                />
                 <span>
-                    {isAutoPlay ? '자동 재생 중 (아무 키나 누르면 수동 전환)' : '수동 연주'}
+                    {totalSteps > 0 ? `${Math.min(currentStep + 1, totalSteps)} / ${totalSteps}` : '0 / 0'}
                 </span>
-            </div>
-
-            <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                <label>
-                    노트 간격 ({pixelsPerBeat}px/beat):{' '}
-                    <input
-                        type="range"
-                        min={40}
-                        max={200}
-                        step={10}
-                        value={pixelsPerBeat}
-                        onChange={(e) => setPixelsPerBeat(Number(e.target.value))}
-                    />
-                </label>
-
-                <label>
-                    볼륨 ({volume}dB):{' '}
-                    <input
-                        type="range"
-                        min={-40}
-                        max={0}
-                        step={1}
-                        value={volume}
-                        onChange={(e) => setVolume(Number(e.target.value))}
-                    />
-                </label>
-            </div>
+            </label>
         </div>
     );
-}
+};
+
+export default TrackController;
