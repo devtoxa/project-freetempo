@@ -3,18 +3,18 @@ import * as Tone from 'tone';
 import { Midi } from '@tonejs/midi';
 import { useData } from '../stores/useData';
 import { synthMap } from '../audio/synthMap';
-import './../css/Track.css';
 
 const PIXELS_PER_BEAT = 80;
 const DEFAULT_BPM = 120;
 const MIN_MIDI = 21;
 const MAX_MIDI = 108;
-
-const TRACK_HEIGHT = 480;
+const NOTE_WIDTH = 36;
 const NOTE_HEIGHT = 12;
 const PADDING = 12;
-const FADE_OUT_MS = 220;
-
+const TRACK_WIDTH = 640;
+const TRACK_HEIGHT = 480;
+const HIT_LINE_Y = TRACK_HEIGHT - 50; // 아래쪽 기준선 위치
+const MIN_NOTE_HEIGHT = 12;
 const midiUrls = import.meta.glob('../midi/*.mid', {
     eager: true,
     query: '?url',
@@ -175,23 +175,28 @@ const Track = () => {
                 테스트 재생
             </button>
 
-            <div className="track-viewport" style={{ height: `${TRACK_HEIGHT}px` }}>
-                <div className="track-canvas" style={{ width: `${trackWidth}px` }}>
+            <div className="track-viewport" style={{ position: 'relative', width: `${TRACK_WIDTH}px`, height: `${TRACK_HEIGHT}px`, overflow: 'hidden' }}>
+                <div className="track-canvas" style={{ position: 'relative', width: '100%', height: '100%' }}>
                     {remainingNotes.map((note, idx) => {
-                        const left = Math.max((note.time - offsetTime) * beatsPerSecond * PIXELS_PER_BEAT, 0);
-                        const width = Math.max(note.duration * beatsPerSecond * PIXELS_PER_BEAT, 16);
-                        const ratio = Math.min(Math.max((note.midi - minMidi) / midiSpan, 0), 1);
-                        const top = PADDING + (1 - ratio) * usableHeight;
+                        // 1. 가로(X): 음높이(midi)에 따른 좌우 위치
+                        const midiRatio = Math.min(Math.max((note.midi - minMidi) / midiSpan, 0), 1);
+                        const left = PADDING + midiRatio * (TRACK_WIDTH - NOTE_WIDTH - PADDING * 2);
+
+                        // 2. 세로(Y): 현재 offsetTime 기준으로 위에서 아래로 떨어지는 위치
+                        const deltaSec = Math.max(note.time - offsetTime, 0);
+                        const height = Math.max(note.duration * beatsPerSecond * PIXELS_PER_BEAT, MIN_NOTE_HEIGHT);
+                        const top = HIT_LINE_Y - deltaSec * beatsPerSecond * PIXELS_PER_BEAT - height;
 
                         return (
                             <div
-                                key={`${note.midi}-${note.time}-${idx}`}
-                                className="track-note"
+                                key={note._uid ?? `${note.midi}-${note.time}-${idx}`}
                                 style={{
+                                    position: 'absolute',
                                     left: `${left}px`,
                                     top: `${top}px`,
-                                    width: `${width}px`,
-                                    height: `${NOTE_HEIGHT}px`,
+                                    width: `${NOTE_WIDTH}px`,
+                                    height: `${height}px`,
+                                    transition: 'top 0.2s ease-out, opacity 0.2s ease-out',
                                 }}
                             >
                                 {note.name}
