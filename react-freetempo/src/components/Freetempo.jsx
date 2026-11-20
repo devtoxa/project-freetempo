@@ -1,21 +1,19 @@
-import Info from './Info'
-import Track from './Track'
-import MidiSelector from './MidiSelector'
-import SoundFontSelector from './SoundFontSelector'
-import TrackControls from './TrackControls'
+import Info from './Info';
+import Track from './Track';
+import MidiSelector from './MidiSelector';
+import SoundFontSelector from './SoundFontSelector';
+import TrackController from './TrackController';
 
 export default function Freetempo() {
     return (
         <div className="Layout">
+            <Info className="Info" />
             <Track className="Track" />
-            <div className="InfoSelector">
-                <Info className="Info" />
-                <div className="Selector">
-                    <SoundFontSelector className="SoundFontSelector" />
-                    <MidiSelector className="MidiSelector" />
-                </div>
-                <TrackControls className="TrackControls" />
+            <div className="Selector">
+                <SoundFontSelector className="SoundFontSelector" />
+                <MidiSelector className="MidiSelector" />
+                <TrackController className="TrackController" />
             </div>
         </div>
-    )
+    );
 }

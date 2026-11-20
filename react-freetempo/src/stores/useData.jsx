@@ -52,15 +52,27 @@ const soundFontList = [
 ];
 
 export const useData = create((set) => ({
-  midiList,
-  soundFontList,
-  currentMidiId: 1,
-  currentSoundFontId: 1,
-  pixelsPerBeat: 80,
-  volume: -6,
+    midiList,
+    soundFontList,
+    currentMidiId: 1,
+    currentSoundFontId: 1,
+    pixelsPerBeat: 80,
+    volume: -6,
+    isAutoPlay: false,
+    autoPlaySessionId: 0,
 
-  setMidiId: (id) => set({ currentMidiId: Number(id) }),
-  setSoundFontId: (id) => set({ currentSoundFontId: Number(id) }),
-  setPixelsPerBeat: (value) => set({ pixelsPerBeat: Number(value) }),
-  setVolume: (value) => set({ volume: Number(value) }),
+    setMidiId: (id) => set({ currentMidiId: Number(id), isAutoPlay: false }),
+    setSoundFontId: (id) => set({ currentSoundFontId: Number(id) }),
+    setPixelsPerBeat: (value) => set({ pixelsPerBeat: Number(value) }),
+    setVolume: (value) => set({ volume: Number(value) }),
+
+    toggleAutoPlay: () =>
+        set((state) => {
+            const nextActive = !state.isAutoPlay;
+            return {
+                isAutoPlay: nextActive,
+                autoPlaySessionId: nextActive ? state.autoPlaySessionId + 1 : state.autoPlaySessionId,
+            };
+        }),
+    stopAutoPlay: () => set({ isAutoPlay: false }),
 }));

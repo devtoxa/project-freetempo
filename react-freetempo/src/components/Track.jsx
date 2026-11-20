@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as Tone from 'tone';
 import { Midi } from '@tonejs/midi';
 import { useData } from '../stores/useData';
@@ -11,13 +11,9 @@ const MAX_MIDI = 108;
 const NOTE_HEIGHT = 12;
 const NOTE_WIDTH = 20;
 const PADDING = 12;
-const TRACK_WIDTH = 1000;
-const TRACK_HEIGHT = 650;
-const HIT_LINE_Y = TRACK_HEIGHT - 50;
 const DEFAULT_MOVE_MS = 220;
 
 const LOOKAHEAD_SEC = 3.5;
-const TOP_PERSPECTIVE_Y = 48;
 const TOP_WIDTH_RATIO = 0.42;
 const BOTTOM_WIDTH_RATIO = 0.94;
 
@@ -67,25 +63,36 @@ function groupNotesByTime(notes, threshold = 0.02) {
 }
 
 const Track = () => {
-    const soundFontList = useData((state) => state.soundFontList);
+    const soundFontList = useData((state) => state.soundFontList ?? []);
     const currentSoundFontId = useData((state) => state.currentSoundFontId);
     const currentFont =
         soundFontList.find((soundFont) => Number(soundFont.id) === Number(currentSoundFontId)) ??
         soundFontList[0];
 
     const currentMidiId = useData((state) => state.currentMidiId);
-    const midiList = useData((state) => state.midiList);
+    const midiList = useData((state) => state.midiList ?? []);
     const currentMidi =
         midiList.find((midi) => Number(midi.id) === Number(currentMidiId)) ??
         midiList[0];
 
     const pixelsPerBeat = useData((state) => state.pixelsPerBeat ?? 80);
     const volume = useData((state) => state.volume ?? -6);
+    const isAutoPlay = useData((state) => state.isAutoPlay);
+    const autoPlaySessionId = useData((state) => state.autoPlaySessionId);
+    const stopAutoPlay = useData((state) => state.stopAutoPlay);
 
     const synthRef = useRef(null);
     const stepRef = useRef(0);
     const canvasRef = useRef(null);
+    const viewportRef = useRef(null);
     const rafIdRef = useRef(null);
+    const sizeRef = useRef({ width: 900, height: 540 });
+
+    const autoPlayRef = useRef({
+        active: false,
+        startPerfMs: 0,
+        startSongTime: 0,
+    });
 
     const [notes, setNotes] = useState([]);
     const [bpm, setBpm] = useState(DEFAULT_BPM);
@@ -130,6 +137,7 @@ const Track = () => {
 
     const renderStateRef = useRef({
         notes,
+        noteGroups,
         bpm,
         pixelsPerBeat,
         maxGroupGapMs,
@@ -142,15 +150,104 @@ const Track = () => {
 
     useEffect(() => {
         renderStateRef.current.notes = notes;
+        renderStateRef.current.noteGroups = noteGroups;
         renderStateRef.current.bpm = bpm;
         renderStateRef.current.pixelsPerBeat = pixelsPerBeat;
         renderStateRef.current.maxGroupGapMs = maxGroupGapMs;
         renderStateRef.current.targetCursorTime = targetCursorTime;
         renderStateRef.current.midiRange = midiRange;
         renderStateRef.current.activeUids = new Set((activeGroup ?? []).map((n) => n._uid));
-    }, [notes, bpm, pixelsPerBeat, maxGroupGapMs, targetCursorTime, midiRange, activeGroup]);
+    }, [notes, noteGroups, bpm, pixelsPerBeat, maxGroupGapMs, targetCursorTime, midiRange, activeGroup]);
 
-    // 사운드폰트 변경 시 악기 인스턴스 생성 및 해제
+    const playGroup = useCallback((group) => {
+        if (!group || !synthRef.current) return;
+        for (let i = 0; i < group.length; i++) {
+            const note = group[i];
+            if (!note?.name) continue;
+            const dur =
+                Number.isFinite(note.duration) && note.duration > 0
+                    ? Math.max(note.duration, 0.1)
+                    : 0.2;
+            synthRef.current.triggerAttackRelease(note.name, dur, undefined, note.velocity ?? 0.8);
+        }
+    }, []);
+
+    // 스토어의 isAutoPlay 상태 변화에 맞춰 자동 재생 시작/중지 동기화
+    useEffect(() => {
+        if (!isAutoPlay) {
+            autoPlayRef.current.active = false;
+            return;
+        }
+
+        if (!noteGroups.length || !synthRef.current) {
+            stopAutoPlay();
+            return;
+        }
+
+        let cancelled = false;
+
+        (async () => {
+            if (Tone.getContext().state !== 'running') {
+                await Tone.start();
+            }
+            if (currentFont?.type === 'sampler') {
+                await Tone.loaded();
+            }
+            if (cancelled) return;
+
+            const idx = stepRef.current % noteGroups.length;
+            const currentGroup = noteGroups[idx];
+            const startSongTime = currentGroup?.[0]?.time ?? 0;
+
+            playGroup(currentGroup);
+            const nextStep = (idx + 1) % noteGroups.length;
+            stepRef.current = nextStep;
+            setCurrentStep(nextStep);
+
+            renderStateRef.current.displayCursorTime = startSongTime;
+            autoPlayRef.current = {
+                active: true,
+                startPerfMs: performance.now(),
+                startSongTime,
+            };
+        })();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [isAutoPlay, autoPlaySessionId, noteGroups, currentFont?.type, playGroup, stopAutoPlay]);
+
+    // 컨테이너 크기 변화 감지
+    useEffect(() => {
+        const el = viewportRef.current;
+        if (!el) return;
+
+        const updateSize = () => {
+            const rect = el.getBoundingClientRect();
+            const width = Math.max(Math.floor(rect.width), 200);
+            const height = Math.max(Math.floor(rect.height), 200);
+            sizeRef.current = { width, height };
+
+            const canvas = canvasRef.current;
+            if (canvas) {
+                const dpr = window.devicePixelRatio || 1;
+                canvas.width = Math.floor(width * dpr);
+                canvas.height = Math.floor(height * dpr);
+            }
+        };
+
+        updateSize();
+        const observer = new ResizeObserver(updateSize);
+        observer.observe(el);
+        window.addEventListener('resize', updateSize);
+
+        return () => {
+            observer.disconnect();
+            window.removeEventListener('resize', updateSize);
+        };
+    }, []);
+
+    // 사운드폰트 인스턴스 생성 및 정리
     useEffect(() => {
         const synth = createInstrument(currentFont);
         synth.volume.value = volume;
@@ -164,17 +261,17 @@ const Track = () => {
         };
     }, [currentFont?.type]);
 
-    // 볼륨 동기화
     useEffect(() => {
         if (synthRef.current) {
             synthRef.current.volume.value = volume;
         }
     }, [volume]);
 
-    // 선택된 MIDI 파일 로드 및 노트 추출
+    // MIDI 파일 로드 및 초기화
     useEffect(() => {
         if (!currentMidi?.url) return;
         let active = true;
+        stopAutoPlay();
 
         (async () => {
             const url = resolveMidiURL(currentMidi.url);
@@ -209,9 +306,9 @@ const Track = () => {
         return () => {
             active = false;
         };
-    }, [currentMidi?.url]);
+    }, [currentMidi?.url, stopAutoPlay]);
 
-    // 키 입력으로 현재 노트 그룹 연주 및 스텝 이동
+    // 키 입력 시 자동 재생 해제 후 수동 모드 연주
     useEffect(() => {
         const handleKeyDown = async (e) => {
             if (e.repeat) return;
@@ -220,6 +317,11 @@ const Track = () => {
             if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
 
             if (!noteGroups.length || !synthRef.current) return;
+
+            if (autoPlayRef.current.active) {
+                autoPlayRef.current.active = false;
+                stopAutoPlay();
+            }
 
             if (Tone.getContext().state !== 'running') {
                 await Tone.start();
@@ -230,15 +332,7 @@ const Track = () => {
 
             const idx = stepRef.current % noteGroups.length;
             const group = noteGroups[idx];
-
-            group.forEach((note) => {
-                if (!note?.name) return;
-                const dur =
-                    Number.isFinite(note.duration) && note.duration > 0
-                        ? Math.max(note.duration, 0.1)
-                        : 0.2;
-                synthRef.current?.triggerAttackRelease(note.name, dur);
-            });
+            playGroup(group);
 
             const nextStep = (idx + 1) % noteGroups.length;
             stepRef.current = nextStep;
@@ -247,41 +341,84 @@ const Track = () => {
 
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [noteGroups, currentFont?.type]);
+    }, [noteGroups, currentFont?.type, playGroup, stopAutoPlay]);
 
-    // requestAnimationFrame으로 사다리꼴 기어 및 노트 렌더링
+    // requestAnimationFrame 렌더링 루프
     useEffect(() => {
         const canvas = canvasRef.current;
         if (!canvas) return;
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
 
-        const dpr = window.devicePixelRatio || 1;
-        canvas.width = TRACK_WIDTH * dpr;
-        canvas.height = TRACK_HEIGHT * dpr;
-
         const draw = (now) => {
             const state = renderStateRef.current;
+            const { width, height } = sizeRef.current;
+
+            const dpr = window.devicePixelRatio || 1;
+            const targetW = Math.floor(width * dpr);
+            const targetH = Math.floor(height * dpr);
+            if (canvas.width !== targetW || canvas.height !== targetH) {
+                canvas.width = targetW;
+                canvas.height = targetH;
+            }
+
             const dtMs = state.lastFrameTime == null ? 16.67 : Math.min(now - state.lastFrameTime, 50);
             state.lastFrameTime = now;
 
-            const diff = state.targetCursorTime - state.displayCursorTime;
-            if (Math.abs(diff) < 0.0005) {
-                state.displayCursorTime = state.targetCursorTime;
+            if (autoPlayRef.current.active && state.noteGroups.length > 0) {
+                const elapsedSec = (now - autoPlayRef.current.startPerfMs) / 1000;
+                const songTime = autoPlayRef.current.startSongTime + elapsedSec;
+                state.displayCursorTime = songTime;
+
+                let idx = stepRef.current % state.noteGroups.length;
+                let triggered = false;
+
+                while (idx < state.noteGroups.length) {
+                    const nextGroup = state.noteGroups[idx];
+                    const groupTime = nextGroup?.[0]?.time ?? Infinity;
+
+                    if (songTime >= groupTime) {
+                        playGroup(nextGroup);
+                        idx += 1;
+                        triggered = true;
+                    } else {
+                        break;
+                    }
+                }
+
+                if (triggered) {
+                    if (idx >= state.noteGroups.length) {
+                        stepRef.current = 0;
+                        setCurrentStep(0);
+                        state.displayCursorTime = 0;
+                        autoPlayRef.current.active = false;
+                        stopAutoPlay();
+                    } else {
+                        stepRef.current = idx;
+                        setCurrentStep(idx);
+                    }
+                }
             } else {
-                const alpha = 1 - Math.exp(-dtMs / Math.max(state.maxGroupGapMs * 0.45, 40));
-                state.displayCursorTime += diff * alpha;
+                const diff = state.targetCursorTime - state.displayCursorTime;
+                if (Math.abs(diff) < 0.0005) {
+                    state.displayCursorTime = state.targetCursorTime;
+                } else {
+                    const alpha = 1 - Math.exp(-dtMs / Math.max(state.maxGroupGapMs * 0.45, 40));
+                    state.displayCursorTime += diff * alpha;
+                }
             }
 
-            ctx.save();
-            ctx.scale(dpr, dpr);
-            ctx.clearRect(0, 0, TRACK_WIDTH, TRACK_HEIGHT);
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            ctx.clearRect(0, 0, width, height);
             ctx.lineJoin = 'round';
 
-            const centerX = TRACK_WIDTH / 2;
-            const topHalfW = (TRACK_WIDTH * TOP_WIDTH_RATIO) / 2;
-            const bottomHalfW = (TRACK_WIDTH * BOTTOM_WIDTH_RATIO) / 2;
-            const gearSpanY = Math.max(HIT_LINE_Y - TOP_PERSPECTIVE_Y, 1);
+            const topPerspectiveY = Math.max(Math.round(height * 0.08), 24);
+            const hitLineY = height - Math.max(Math.round(height * 0.08), 36);
+            const centerX = width / 2;
+            const topHalfW = (width * TOP_WIDTH_RATIO) / 2;
+            const bottomHalfW = (width * BOTTOM_WIDTH_RATIO) / 2;
+            const gearSpanY = Math.max(hitLineY - topPerspectiveY, 1);
+            const uiScale = Math.min(Math.max(width / 960, 0.65), 1.35);
 
             const getGearBoundsAtT = (t) => {
                 const halfW = lerp(topHalfW, bottomHalfW, t);
@@ -292,32 +429,29 @@ const Track = () => {
                 };
             };
 
-            // 기어 배경
             const topBounds = getGearBoundsAtT(0);
             const bottomBounds = getGearBoundsAtT(1.08);
 
             ctx.beginPath();
-            ctx.moveTo(topBounds.left, TOP_PERSPECTIVE_Y);
-            ctx.lineTo(topBounds.right, TOP_PERSPECTIVE_Y);
-            ctx.lineTo(bottomBounds.right, TOP_PERSPECTIVE_Y + gearSpanY * 1.08);
-            ctx.lineTo(bottomBounds.left, TOP_PERSPECTIVE_Y + gearSpanY * 1.08);
+            ctx.moveTo(topBounds.left, topPerspectiveY);
+            ctx.lineTo(topBounds.right, topPerspectiveY);
+            ctx.lineTo(bottomBounds.right, topPerspectiveY + gearSpanY * 1.08);
+            ctx.lineTo(bottomBounds.left, topPerspectiveY + gearSpanY * 1.08);
             ctx.closePath();
             ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
             ctx.fill();
 
-            // 원근 레인 가이드 라인
             const laneCount = 8;
             ctx.strokeStyle = 'rgba(148, 163, 184, 0.22)';
             ctx.lineWidth = 1;
             for (let l = 0; l <= laneCount; l++) {
                 const ratio = l / laneCount;
                 ctx.beginPath();
-                ctx.moveTo(lerp(topBounds.left, topBounds.right, ratio), TOP_PERSPECTIVE_Y);
-                ctx.lineTo(lerp(bottomBounds.left, bottomBounds.right, ratio), HIT_LINE_Y);
+                ctx.moveTo(lerp(topBounds.left, topBounds.right, ratio), topPerspectiveY);
+                ctx.lineTo(lerp(bottomBounds.left, bottomBounds.right, ratio), hitLineY);
                 ctx.stroke();
             }
 
-            // 노트 투영 렌더링
             const currentNotes = state.notes;
             const { minMidi, midiSpan } = state.midiRange;
             const speedScale = Math.max(state.pixelsPerBeat / 80, 0.4);
@@ -331,10 +465,10 @@ const Track = () => {
                 if (t < -0.05 || t > 1.15) continue;
 
                 const clampedT = Math.min(Math.max(t, 0), 1);
-                const y = lerp(TOP_PERSPECTIVE_Y, HIT_LINE_Y, clampedT);
+                const y = lerp(topPerspectiveY, hitLineY, clampedT);
                 const bounds = getGearBoundsAtT(clampedT);
 
-                const perspectiveScale = lerp(0.45, 1.15, clampedT);
+                const perspectiveScale = lerp(0.45, 1.15, clampedT) * uiScale;
                 const noteW = NOTE_WIDTH * perspectiveScale;
                 const noteH = NOTE_HEIGHT * perspectiveScale;
 
@@ -354,19 +488,17 @@ const Track = () => {
                 ctx.strokeRect(x, y - noteH, noteW, noteH);
             }
 
-            // 판정선
             const hitBounds = getGearBoundsAtT(1);
             ctx.fillStyle = 'rgba(0, 255, 0, 0.25)';
-            ctx.fillRect(hitBounds.left, HIT_LINE_Y - 6, hitBounds.width, 12);
+            ctx.fillRect(hitBounds.left, hitLineY - 6, hitBounds.width, 12);
 
             ctx.strokeStyle = 'chartreuse';
             ctx.lineWidth = 2.5;
             ctx.beginPath();
-            ctx.moveTo(hitBounds.left, HIT_LINE_Y);
-            ctx.lineTo(hitBounds.right, HIT_LINE_Y);
+            ctx.moveTo(hitBounds.left, hitLineY);
+            ctx.lineTo(hitBounds.right, hitLineY);
             ctx.stroke();
 
-            ctx.restore();
             rafIdRef.current = requestAnimationFrame(draw);
         };
 
@@ -377,34 +509,20 @@ const Track = () => {
                 rafIdRef.current = null;
             }
         };
-    }, []);
-
-    const handleTestSound = async () => {
-        if (Tone.getContext().state !== 'running') {
-            await Tone.start();
-        }
-        if (currentFont?.type === 'sampler') {
-            await Tone.loaded();
-        }
-        synthRef.current?.triggerAttackRelease(['C4', 'E4', 'G4'], '8n');
-    };
+    }, [playGroup, stopAutoPlay]);
 
     return (
         <div className="Track">
-            <p>{currentFont?.fontName}</p>
-            <p>{currentMidi?.title}</p>
-            <p>
-                진행: {currentStep} / {noteGroups.length}
-            </p>
-            <button type="button" onClick={handleTestSound}>
-                테스트 재생
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                <span>{currentFont?.fontName}</span>
+                <span>{currentMidi?.title}</span>
+                <span>
+                    진행: {currentStep} / {noteGroups.length}
+                </span>
+            </div>
 
-            <div className="track-viewport" style={{ width: `${TRACK_WIDTH}px`, height: `${TRACK_HEIGHT}px` }}>
-                <canvas
-                    ref={canvasRef}
-                    style={{ width: `${TRACK_WIDTH}px`, height: `${TRACK_HEIGHT}px`, display: 'block' }}
-                />
+            <div ref={viewportRef} className="track-viewport">
+                <canvas ref={canvasRef} />
             </div>
         </div>
     );

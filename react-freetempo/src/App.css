@@ -8,59 +8,71 @@ html,
 body {
     width: 100%;
     height: 100%;
-    background-color: black;
-    color: white;
+    background-color: #0e1017;
+    color: #e2e8f0;
+    font-family: system-ui, -apple-system, sans-serif;
 }
 
 .Layout {
-    position: relative;
+    display: grid;
+    grid-template-columns: 3fr 1fr;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+}
+
+.Track {
+    display: flex;
+    flex-direction: column;
     width: 100%;
     height: 100%;
-}
-
-.Selector {
-    position: absolute;
-    right: 0;
-}
-
-.Info {
-    position: absolute;
-    right: 0;
-    top: 0;
+    min-width: 0;
+    min-height: 0;
+    padding: 12px;
+    gap: 8px;
 }
 
 .track-viewport {
     position: relative;
+    flex: 1 1 0;
+    width: 100%;
+    min-height: 0;
     overflow: hidden;
+    border-radius: 8px;
 }
 
-.track-canvas {
-    position: relative;
+.track-viewport canvas {
     width: 100%;
     height: 100%;
+    display: block;
 }
 
-.track-hit-line {
-    position: absolute;
-    left: 0;
-    right: 0;
-    height: 5px;
-    background: rgba(255, 0, 0, 0.35);
-    border-top: 1px solid red;
-    border-bottom: 1px solid red;
-    pointer-events: none;
-    z-index: 5;
+.InfoSelector {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 16px;
+    height: 100%;
+    background-color: #141722;
+    border-left: 1px solid #262b38;
+    overflow-y: auto;
 }
 
-.track-note {
-    position: absolute;
-    z-index: 1;
-    background-color: #3b82f6;
-    color: transparent;
+.InfoSelector>* {
+    flex: 1 1 0;
+    min-height: 0;
 }
 
-/* 샵(#) 노트: 약간 어두운 노란색 계열 */
-.track-note.is-sharp {
-    background-color: goldenrod;
-    z-index: 2;
+/* 좁은 화면(태블릿/모바일)에서도 레이아웃이 무너지지 않도록 대응 */
+@media (max-width: 900px) {
+    .Layout {
+        grid-template-columns: 1fr;
+        grid-template-rows: 1.4fr 1fr;
+        height: 100dvh;
+    }
+
+    .InfoSelector {
+        border-left: none;
+        border-top: 1px solid #262b38;
+    }
 }
