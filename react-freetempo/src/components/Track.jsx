@@ -12,8 +12,8 @@ const MAX_MIDI = 108;
 const NOTE_HEIGHT = 12; // 원하는 고정 노트 높이(px)
 const NOTE_WIDTH = 36;
 const PADDING = 12;
-const TRACK_WIDTH = 640;
-const TRACK_HEIGHT = 480;
+const TRACK_WIDTH = 1920;
+const TRACK_HEIGHT = 1080;
 const HIT_LINE_Y = TRACK_HEIGHT - 50;
 const DEFAULT_MOVE_MS = 220;
 
