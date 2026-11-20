@@ -16,11 +16,20 @@ const TRACK_HEIGHT = 650;
 const HIT_LINE_Y = TRACK_HEIGHT - 50;
 const DEFAULT_MOVE_MS = 220;
 
+const LOOKAHEAD_SEC = 3.5;
+const TOP_PERSPECTIVE_Y = 48;
+const TOP_WIDTH_RATIO = 0.42;
+const BOTTOM_WIDTH_RATIO = 0.94;
+
 const midiUrls = import.meta.glob('../midi/*.mid', {
     eager: true,
     query: '?url',
     import: 'default',
 });
+
+function lerp(a, b, t) {
+    return a + (b - a) * t;
+}
 
 function resolveMidiURL(midiUrl) {
     const filename = midiUrl?.split('/').pop();
@@ -141,6 +150,7 @@ const Track = () => {
         renderStateRef.current.activeUids = new Set((activeGroup ?? []).map((n) => n._uid));
     }, [notes, bpm, pixelsPerBeat, maxGroupGapMs, targetCursorTime, midiRange, activeGroup]);
 
+    // 사운드폰트 변경 시 악기 인스턴스 생성 및 해제
     useEffect(() => {
         const synth = createInstrument(currentFont);
         synth.volume.value = volume;
@@ -154,12 +164,14 @@ const Track = () => {
         };
     }, [currentFont?.type]);
 
+    // 볼륨 동기화
     useEffect(() => {
         if (synthRef.current) {
             synthRef.current.volume.value = volume;
         }
     }, [volume]);
 
+    // 선택된 MIDI 파일 로드 및 노트 추출
     useEffect(() => {
         if (!currentMidi?.url) return;
         let active = true;
@@ -199,6 +211,7 @@ const Track = () => {
         };
     }, [currentMidi?.url]);
 
+    // 키 입력으로 현재 노트 그룹 연주 및 스텝 이동
     useEffect(() => {
         const handleKeyDown = async (e) => {
             if (e.repeat) return;
@@ -236,6 +249,7 @@ const Track = () => {
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [noteGroups, currentFont?.type]);
 
+    // requestAnimationFrame으로 사다리꼴 기어 및 노트 렌더링
     useEffect(() => {
         const canvas = canvasRef.current;
         if (!canvas) return;
@@ -264,43 +278,92 @@ const Track = () => {
             ctx.clearRect(0, 0, TRACK_WIDTH, TRACK_HEIGHT);
             ctx.lineJoin = 'round';
 
+            const centerX = TRACK_WIDTH / 2;
+            const topHalfW = (TRACK_WIDTH * TOP_WIDTH_RATIO) / 2;
+            const bottomHalfW = (TRACK_WIDTH * BOTTOM_WIDTH_RATIO) / 2;
+            const gearSpanY = Math.max(HIT_LINE_Y - TOP_PERSPECTIVE_Y, 1);
+
+            const getGearBoundsAtT = (t) => {
+                const halfW = lerp(topHalfW, bottomHalfW, t);
+                return {
+                    left: centerX - halfW,
+                    right: centerX + halfW,
+                    width: halfW * 2,
+                };
+            };
+
+            // 기어 배경
+            const topBounds = getGearBoundsAtT(0);
+            const bottomBounds = getGearBoundsAtT(1.08);
+
+            ctx.beginPath();
+            ctx.moveTo(topBounds.left, TOP_PERSPECTIVE_Y);
+            ctx.lineTo(topBounds.right, TOP_PERSPECTIVE_Y);
+            ctx.lineTo(bottomBounds.right, TOP_PERSPECTIVE_Y + gearSpanY * 1.08);
+            ctx.lineTo(bottomBounds.left, TOP_PERSPECTIVE_Y + gearSpanY * 1.08);
+            ctx.closePath();
+            ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+            ctx.fill();
+
+            // 원근 레인 가이드 라인
+            const laneCount = 8;
+            ctx.strokeStyle = 'rgba(148, 163, 184, 0.22)';
+            ctx.lineWidth = 1;
+            for (let l = 0; l <= laneCount; l++) {
+                const ratio = l / laneCount;
+                ctx.beginPath();
+                ctx.moveTo(lerp(topBounds.left, topBounds.right, ratio), TOP_PERSPECTIVE_Y);
+                ctx.lineTo(lerp(bottomBounds.left, bottomBounds.right, ratio), HIT_LINE_Y);
+                ctx.stroke();
+            }
+
+            // 노트 투영 렌더링
             const currentNotes = state.notes;
-            const beatsPerSecond = state.bpm / 60;
-            const pxPerBeat = state.pixelsPerBeat;
             const { minMidi, midiSpan } = state.midiRange;
-            const usableWidth = Math.max(TRACK_WIDTH - NOTE_WIDTH - PADDING * 2, 1);
+            const speedScale = Math.max(state.pixelsPerBeat / 80, 0.4);
+            const effectiveLookahead = LOOKAHEAD_SEC / speedScale;
 
             for (let i = 0; i < currentNotes.length; i++) {
                 const note = currentNotes[i];
+                const deltaSec = note.time - state.displayCursorTime;
+
+                const t = 1 - deltaSec / effectiveLookahead;
+                if (t < -0.05 || t > 1.15) continue;
+
+                const clampedT = Math.min(Math.max(t, 0), 1);
+                const y = lerp(TOP_PERSPECTIVE_Y, HIT_LINE_Y, clampedT);
+                const bounds = getGearBoundsAtT(clampedT);
+
+                const perspectiveScale = lerp(0.45, 1.15, clampedT);
+                const noteW = NOTE_WIDTH * perspectiveScale;
+                const noteH = NOTE_HEIGHT * perspectiveScale;
+
+                const midiRatio = Math.min(Math.max((note.midi - minMidi) / midiSpan, 0), 1);
+                const innerPadding = PADDING * perspectiveScale;
+                const usableW = Math.max(bounds.width - noteW - innerPadding * 2, 1);
+                const x = bounds.left + innerPadding + midiRatio * usableW;
+
                 const isActive = state.activeUids.has(note._uid);
                 const isSharp = note.name?.includes('#');
 
-                const midiRatio = Math.min(Math.max((note.midi - minMidi) / midiSpan, 0), 1);
-                const x = PADDING + midiRatio * usableWidth;
-
-                const deltaSec = note.time - state.displayCursorTime;
-                const y = HIT_LINE_Y - deltaSec * beatsPerSecond * pxPerBeat - NOTE_HEIGHT;
-
-                if (y + NOTE_HEIGHT < -40 || y > TRACK_HEIGHT + 40) continue;
-
                 ctx.fillStyle = isActive ? 'goldenrod' : isSharp ? '#b58900' : '#3b82f6';
-                ctx.fillRect(x, y, NOTE_WIDTH, NOTE_HEIGHT);
+                ctx.fillRect(x, y - noteH, noteW, noteH);
 
                 ctx.lineWidth = isActive ? 3 : 2;
                 ctx.strokeStyle = isActive ? '#fff8cc' : '#0f172a';
-                ctx.strokeRect(x, y, NOTE_WIDTH, NOTE_HEIGHT);
+                ctx.strokeRect(x, y - noteH, noteW, noteH);
             }
 
+            // 판정선
+            const hitBounds = getGearBoundsAtT(1);
             ctx.fillStyle = 'rgba(0, 255, 0, 0.25)';
-            ctx.fillRect(0, HIT_LINE_Y - 6, TRACK_WIDTH, 12);
+            ctx.fillRect(hitBounds.left, HIT_LINE_Y - 6, hitBounds.width, 12);
 
             ctx.strokeStyle = 'chartreuse';
-            ctx.lineWidth = 2;
+            ctx.lineWidth = 2.5;
             ctx.beginPath();
-            ctx.moveTo(0, HIT_LINE_Y - 6);
-            ctx.lineTo(TRACK_WIDTH, HIT_LINE_Y - 6);
-            ctx.moveTo(0, HIT_LINE_Y + 6);
-            ctx.lineTo(TRACK_WIDTH, HIT_LINE_Y + 6);
+            ctx.moveTo(hitBounds.left, HIT_LINE_Y);
+            ctx.lineTo(hitBounds.right, HIT_LINE_Y);
             ctx.stroke();
 
             ctx.restore();
@@ -333,6 +396,9 @@ const Track = () => {
             <p>
                 진행: {currentStep} / {noteGroups.length}
             </p>
+            <button type="button" onClick={handleTestSound}>
+                테스트 재생
+            </button>
 
             <div className="track-viewport" style={{ width: `${TRACK_WIDTH}px`, height: `${TRACK_HEIGHT}px` }}>
                 <canvas
