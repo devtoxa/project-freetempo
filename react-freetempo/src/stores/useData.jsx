@@ -52,10 +52,15 @@ const soundFontList = [
 ];
 
 export const useData = create((set) => ({
-    midiList,
-    soundFontList,
-    currentSoundFontId: 1,
-    currentMidiId: 1,
-    setSoundFontId: (id) => set({ currentSoundFontId: Number(id) }),
-    setMidiId: (id) => set({ currentMidiId: Number(id) }),
+  midiList,
+  soundFontList,
+  currentMidiId: 1,
+  currentSoundFontId: 1,
+  pixelsPerBeat: 80,
+  volume: -6,
+
+  setMidiId: (id) => set({ currentMidiId: Number(id) }),
+  setSoundFontId: (id) => set({ currentSoundFontId: Number(id) }),
+  setPixelsPerBeat: (value) => set({ pixelsPerBeat: Number(value) }),
+  setVolume: (value) => set({ volume: Number(value) }),
 }));

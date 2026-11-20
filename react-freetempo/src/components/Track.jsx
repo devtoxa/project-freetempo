@@ -4,17 +4,15 @@ import { Midi } from '@tonejs/midi';
 import { useData } from '../stores/useData';
 import { synthMap } from '../audio/synthMap';
 
-const DEFAULT_PIXELS_PER_BEAT = 80;
 const DEFAULT_BPM = 120;
-const DEFAULT_VOLUME = -6; // dB (-40 ~ 0)
 const MIN_MIDI = 21;
 const MAX_MIDI = 108;
 
 const NOTE_HEIGHT = 12;
 const NOTE_WIDTH = 20;
 const PADDING = 12;
-const TRACK_WIDTH = 1200;
-const TRACK_HEIGHT = 600;
+const TRACK_WIDTH = 1000;
+const TRACK_HEIGHT = 650;
 const HIT_LINE_Y = TRACK_HEIGHT - 50;
 const DEFAULT_MOVE_MS = 220;
 
@@ -72,6 +70,9 @@ const Track = () => {
         midiList.find((midi) => Number(midi.id) === Number(currentMidiId)) ??
         midiList[0];
 
+    const pixelsPerBeat = useData((state) => state.pixelsPerBeat ?? 80);
+    const volume = useData((state) => state.volume ?? -6);
+
     const synthRef = useRef(null);
     const stepRef = useRef(0);
     const canvasRef = useRef(null);
@@ -80,8 +81,6 @@ const Track = () => {
     const [notes, setNotes] = useState([]);
     const [bpm, setBpm] = useState(DEFAULT_BPM);
     const [currentStep, setCurrentStep] = useState(0);
-    const [pixelsPerBeat, setPixelsPerBeat] = useState(DEFAULT_PIXELS_PER_BEAT);
-    const [volume, setVolume] = useState(DEFAULT_VOLUME);
 
     const noteGroups = useMemo(() => groupNotesByTime(notes), [notes]);
 
@@ -120,7 +119,6 @@ const Track = () => {
     const activeGroup = noteGroups.length ? noteGroups[currentStep % noteGroups.length] : [];
     const targetCursorTime = activeGroup?.[0]?.time ?? 0;
 
-    // 캔버스 루프에서 최신 값에 접근하기 위한 Ref 동기화
     const renderStateRef = useRef({
         notes,
         bpm,
@@ -143,7 +141,6 @@ const Track = () => {
         renderStateRef.current.activeUids = new Set((activeGroup ?? []).map((n) => n._uid));
     }, [notes, bpm, pixelsPerBeat, maxGroupGapMs, targetCursorTime, midiRange, activeGroup]);
 
-    // 사운드폰트 변경 시 악기 생성 및 해제
     useEffect(() => {
         const synth = createInstrument(currentFont);
         synth.volume.value = volume;
@@ -163,7 +160,6 @@ const Track = () => {
         }
     }, [volume]);
 
-    // MIDI 로드 및 노트 추출
     useEffect(() => {
         if (!currentMidi?.url) return;
         let active = true;
@@ -203,7 +199,6 @@ const Track = () => {
         };
     }, [currentMidi?.url]);
 
-    // 키 입력으로 한 스텝 전진 및 연주
     useEffect(() => {
         const handleKeyDown = async (e) => {
             if (e.repeat) return;
@@ -241,7 +236,6 @@ const Track = () => {
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [noteGroups, currentFont?.type]);
 
-    // requestAnimationFrame으로 캔버스에 노트와 판정선 페인팅
     useEffect(() => {
         const canvas = canvasRef.current;
         if (!canvas) return;
@@ -257,7 +251,6 @@ const Track = () => {
             const dtMs = state.lastFrameTime == null ? 16.67 : Math.min(now - state.lastFrameTime, 50);
             state.lastFrameTime = now;
 
-            // 목표 커서 시간으로 부드럽게 보간
             const diff = state.targetCursorTime - state.displayCursorTime;
             if (Math.abs(diff) < 0.0005) {
                 state.displayCursorTime = state.targetCursorTime;
@@ -288,20 +281,16 @@ const Track = () => {
                 const deltaSec = note.time - state.displayCursorTime;
                 const y = HIT_LINE_Y - deltaSec * beatsPerSecond * pxPerBeat - NOTE_HEIGHT;
 
-                // 화면 밖 노트는 스킵
                 if (y + NOTE_HEIGHT < -40 || y > TRACK_HEIGHT + 40) continue;
 
-                // 기존 노트 색상 유지
                 ctx.fillStyle = isActive ? 'goldenrod' : isSharp ? '#b58900' : '#3b82f6';
                 ctx.fillRect(x, y, NOTE_WIDTH, NOTE_HEIGHT);
 
-                // 굵은 테두리 강조
                 ctx.lineWidth = isActive ? 3 : 2;
                 ctx.strokeStyle = isActive ? '#fff8cc' : '#0f172a';
                 ctx.strokeRect(x, y, NOTE_WIDTH, NOTE_HEIGHT);
             }
 
-            // 판정선 오버레이
             ctx.fillStyle = 'rgba(0, 255, 0, 0.25)';
             ctx.fillRect(0, HIT_LINE_Y - 6, TRACK_WIDTH, 12);
 
@@ -338,41 +327,12 @@ const Track = () => {
     };
 
     return (
-        <div>
+        <div className="Track">
             <p>{currentFont?.fontName}</p>
             <p>{currentMidi?.title}</p>
             <p>
                 진행: {currentStep} / {noteGroups.length}
             </p>
-            <button type="button" onClick={handleTestSound}>
-                테스트 재생
-            </button>
-
-            <div style={{ marginTop: '10px', marginBottom: '10px' }}>
-                <label>
-                    노트 간격 ({pixelsPerBeat}px/beat):{' '}
-                    <input
-                        type="range"
-                        min={40}
-                        max={200}
-                        step={10}
-                        value={pixelsPerBeat}
-                        onChange={(e) => setPixelsPerBeat(Number(e.target.value))}
-                    />
-                </label>
-
-                <label style={{ marginLeft: '16px' }}>
-                    볼륨 ({volume}dB):{' '}
-                    <input
-                        type="range"
-                        min={-40}
-                        max={0}
-                        step={1}
-                        value={volume}
-                        onChange={(e) => setVolume(Number(e.target.value))}
-                    />
-                </label>
-            </div>
 
             <div className="track-viewport" style={{ width: `${TRACK_WIDTH}px`, height: `${TRACK_HEIGHT}px` }}>
                 <canvas

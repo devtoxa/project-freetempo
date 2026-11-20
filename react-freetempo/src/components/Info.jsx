@@ -5,10 +5,10 @@ const Info = () => {
     const currentMidiId = useData((state) => state.currentMidiId)
     const currentMidi = midiList.find((item) => item.id === currentMidiId)
     return (
-        <div>
-            <h2>{currentMidi.title}</h2>
-            <h2>{currentMidi.artist}</h2>
-            <h2>{currentMidi.url}</h2>
+        <div className="Info">
+            <div>{currentMidi.title}</div>
+            <div>{currentMidi.artist}</div>
+            <div>{currentMidi.url}</div>
         </div>
     )
 }
