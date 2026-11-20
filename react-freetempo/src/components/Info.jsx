@@ -2,7 +2,7 @@ import { useData } from '../../stores/useData';
 
 const Info = () => {
     const midiList = useData((state) => state.midiList);
-    const currentMidiId = useData((state) => state.currentMidi)
+    const currentMidiId = useData((state) => state.currentMidiId)
     const currentMidi = midiList.find((item) => item.id === currentMidiId)
     return (
         <div>
