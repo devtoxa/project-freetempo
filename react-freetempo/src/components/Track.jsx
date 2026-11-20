@@ -10,6 +10,12 @@ const Track = () => {
     const synthRef = useRef(null);
 
     useEffect(() => {
+        const SynthLoader = synthMap[currentFont.type]
+        const polySynth = new Tone.PolySynth(SynthLoader).toDestination();
+        return () => {
+            polySynth.releaseAll();
+            polySynth.dispose();
+        };
 
     }, [currentFont.type])
     const handleTestSound = async () => {
@@ -18,7 +24,10 @@ const Track = () => {
     }
     return (
         <div>
-            Track
+            <p>사운드폰트: {currentFont.fontName}</p>
+            <button type="button" onClick={handleTestSound}>
+                테스트 재생
+            </button>
         </div>
     )
 }
