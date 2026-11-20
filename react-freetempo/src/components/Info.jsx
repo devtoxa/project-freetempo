@@ -8,7 +8,7 @@ const Info = () => {
         <div>
             <h2>{currentMidi.title}</h2>
             <h2>{currentMidi.artist}</h2>
-            <h2>{currentMidi.filename}</h2>
+            <h2>{currentMidi.url}</h2>
         </div>
     )
 }
