@@ -1,26 +1,54 @@
 * {
     margin: 0;
     padding: 0;
-
+    box-sizing: border-box;
 }
 
 html,
-body {}
-
 body {
     width: 100%;
     height: 100%;
+    background-color: black;
+    color: white;
+}
+
+.Layout {}
+
+.InfoSelector {}
+
+
+.track-viewport {
+    position: relative;
+    overflow: hidden;
+}
+
+.track-canvas {
+    position: relative;
+    width: 100%;
+    height: 100%;
+}
+
+.track-hit-line {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 5px;
+    background: rgba(255, 0, 0, 0.35);
+    border-top: 1px solid red;
+    border-bottom: 1px solid red;
+    pointer-events: none;
+    z-index: 5;
 }
 
 .track-note {
     position: absolute;
     z-index: 1;
-    background-color: lightgray;
-    color: rgba(0, 0, 0, 0);
+    background-color: #3b82f6;
+    color: transparent;
 }
 
-.track-note.is-active {
-    background-color: black;
-    z-index: 4;
-    color: rgba(0, 0, 0, 0);
+/* 샵(#) 노트: 약간 어두운 노란색 계열 */
+.track-note.is-sharp {
+    background-color: goldenrod;
+    z-index: 2;
 }

@@ -9,11 +9,12 @@ const DEFAULT_BPM = 120;
 const DEFAULT_VOLUME = -6; // dB (-40 ~ 0)
 const MIN_MIDI = 21;
 const MAX_MIDI = 108;
-const NOTE_HEIGHT = 12; // 원하는 고정 노트 높이(px)
-const NOTE_WIDTH = 36;
+
+const NOTE_HEIGHT = 12;
+const NOTE_WIDTH = 20;
 const PADDING = 12;
-const TRACK_WIDTH = 1920;
-const TRACK_HEIGHT = 1080;
+const TRACK_WIDTH = 1200;
+const TRACK_HEIGHT = 600;
 const HIT_LINE_Y = TRACK_HEIGHT - 50;
 const DEFAULT_MOVE_MS = 220;
 
@@ -65,14 +66,16 @@ const Track = () => {
         soundFontList.find((soundFont) => Number(soundFont.id) === Number(currentSoundFontId)) ??
         soundFontList[0];
 
-    const synthRef = useRef(null);
-    const stepRef = useRef(0);
-
     const currentMidiId = useData((state) => state.currentMidiId);
     const midiList = useData((state) => state.midiList);
     const currentMidi =
         midiList.find((midi) => Number(midi.id) === Number(currentMidiId)) ??
         midiList[0];
+
+    const synthRef = useRef(null);
+    const stepRef = useRef(0);
+    const canvasRef = useRef(null);
+    const rafIdRef = useRef(null);
 
     const [notes, setNotes] = useState([]);
     const [bpm, setBpm] = useState(DEFAULT_BPM);
@@ -80,6 +83,67 @@ const Track = () => {
     const [pixelsPerBeat, setPixelsPerBeat] = useState(DEFAULT_PIXELS_PER_BEAT);
     const [volume, setVolume] = useState(DEFAULT_VOLUME);
 
+    const noteGroups = useMemo(() => groupNotesByTime(notes), [notes]);
+
+    const midiRange = useMemo(() => {
+        if (!notes.length) {
+            return { minMidi: MIN_MIDI, maxMidi: MAX_MIDI, midiSpan: Math.max(MAX_MIDI - MIN_MIDI, 1) };
+        }
+        let min = Infinity;
+        let max = -Infinity;
+        for (let i = 0; i < notes.length; i++) {
+            const m = notes[i].midi;
+            if (m < min) min = m;
+            if (m > max) max = m;
+        }
+        return {
+            minMidi: min,
+            maxMidi: max,
+            midiSpan: Math.max(max - min, 1),
+        };
+    }, [notes]);
+
+    const maxGroupGapMs = useMemo(() => {
+        if (noteGroups.length < 2) return DEFAULT_MOVE_MS;
+
+        let maxGapSec = 0;
+        for (let i = 0; i < noteGroups.length - 1; i++) {
+            const currTime = noteGroups[i][0]?.time ?? 0;
+            const nextTime = noteGroups[i + 1][0]?.time ?? currTime;
+            const gap = nextTime - currTime;
+            if (gap > maxGapSec) maxGapSec = gap;
+        }
+
+        return Math.min(Math.max(maxGapSec * 1000, 140), 420);
+    }, [noteGroups]);
+
+    const activeGroup = noteGroups.length ? noteGroups[currentStep % noteGroups.length] : [];
+    const targetCursorTime = activeGroup?.[0]?.time ?? 0;
+
+    // 캔버스 루프에서 최신 값에 접근하기 위한 Ref 동기화
+    const renderStateRef = useRef({
+        notes,
+        bpm,
+        pixelsPerBeat,
+        maxGroupGapMs,
+        targetCursorTime,
+        midiRange,
+        activeUids: new Set((activeGroup ?? []).map((n) => n._uid)),
+        displayCursorTime: 0,
+        lastFrameTime: null,
+    });
+
+    useEffect(() => {
+        renderStateRef.current.notes = notes;
+        renderStateRef.current.bpm = bpm;
+        renderStateRef.current.pixelsPerBeat = pixelsPerBeat;
+        renderStateRef.current.maxGroupGapMs = maxGroupGapMs;
+        renderStateRef.current.targetCursorTime = targetCursorTime;
+        renderStateRef.current.midiRange = midiRange;
+        renderStateRef.current.activeUids = new Set((activeGroup ?? []).map((n) => n._uid));
+    }, [notes, bpm, pixelsPerBeat, maxGroupGapMs, targetCursorTime, midiRange, activeGroup]);
+
+    // 사운드폰트 변경 시 악기 생성 및 해제
     useEffect(() => {
         const synth = createInstrument(currentFont);
         synth.volume.value = volume;
@@ -99,6 +163,7 @@ const Track = () => {
         }
     }, [volume]);
 
+    // MIDI 로드 및 노트 추출
     useEffect(() => {
         if (!currentMidi?.url) return;
         let active = true;
@@ -129,6 +194,8 @@ const Track = () => {
             setBpm(midiBpm);
             stepRef.current = 0;
             setCurrentStep(0);
+            renderStateRef.current.displayCursorTime = 0;
+            renderStateRef.current.lastFrameTime = null;
         })();
 
         return () => {
@@ -136,22 +203,7 @@ const Track = () => {
         };
     }, [currentMidi?.url]);
 
-    const noteGroups = useMemo(() => groupNotesByTime(notes), [notes]);
-
-    const maxGroupGapMs = useMemo(() => {
-        if (noteGroups.length < 2) return DEFAULT_MOVE_MS;
-
-        let maxGapSec = 0;
-        for (let i = 0; i < noteGroups.length - 1; i++) {
-            const currTime = noteGroups[i][0]?.time ?? 0;
-            const nextTime = noteGroups[i + 1][0]?.time ?? currTime;
-            const gap = nextTime - currTime;
-            if (gap > maxGapSec) maxGapSec = gap;
-        }
-
-        return Math.min(Math.max(maxGapSec * 1000, 120), 500);
-    }, [noteGroups]);
-
+    // 키 입력으로 한 스텝 전진 및 연주
     useEffect(() => {
         const handleKeyDown = async (e) => {
             if (e.repeat) return;
@@ -189,6 +241,92 @@ const Track = () => {
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [noteGroups, currentFont?.type]);
 
+    // requestAnimationFrame으로 캔버스에 노트와 판정선 페인팅
+    useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = TRACK_WIDTH * dpr;
+        canvas.height = TRACK_HEIGHT * dpr;
+
+        const draw = (now) => {
+            const state = renderStateRef.current;
+            const dtMs = state.lastFrameTime == null ? 16.67 : Math.min(now - state.lastFrameTime, 50);
+            state.lastFrameTime = now;
+
+            // 목표 커서 시간으로 부드럽게 보간
+            const diff = state.targetCursorTime - state.displayCursorTime;
+            if (Math.abs(diff) < 0.0005) {
+                state.displayCursorTime = state.targetCursorTime;
+            } else {
+                const alpha = 1 - Math.exp(-dtMs / Math.max(state.maxGroupGapMs * 0.45, 40));
+                state.displayCursorTime += diff * alpha;
+            }
+
+            ctx.save();
+            ctx.scale(dpr, dpr);
+            ctx.clearRect(0, 0, TRACK_WIDTH, TRACK_HEIGHT);
+            ctx.lineJoin = 'round';
+
+            const currentNotes = state.notes;
+            const beatsPerSecond = state.bpm / 60;
+            const pxPerBeat = state.pixelsPerBeat;
+            const { minMidi, midiSpan } = state.midiRange;
+            const usableWidth = Math.max(TRACK_WIDTH - NOTE_WIDTH - PADDING * 2, 1);
+
+            for (let i = 0; i < currentNotes.length; i++) {
+                const note = currentNotes[i];
+                const isActive = state.activeUids.has(note._uid);
+                const isSharp = note.name?.includes('#');
+
+                const midiRatio = Math.min(Math.max((note.midi - minMidi) / midiSpan, 0), 1);
+                const x = PADDING + midiRatio * usableWidth;
+
+                const deltaSec = note.time - state.displayCursorTime;
+                const y = HIT_LINE_Y - deltaSec * beatsPerSecond * pxPerBeat - NOTE_HEIGHT;
+
+                // 화면 밖 노트는 스킵
+                if (y + NOTE_HEIGHT < -40 || y > TRACK_HEIGHT + 40) continue;
+
+                // 기존 노트 색상 유지
+                ctx.fillStyle = isActive ? 'goldenrod' : isSharp ? '#b58900' : '#3b82f6';
+                ctx.fillRect(x, y, NOTE_WIDTH, NOTE_HEIGHT);
+
+                // 굵은 테두리 강조
+                ctx.lineWidth = isActive ? 3 : 2;
+                ctx.strokeStyle = isActive ? '#fff8cc' : '#0f172a';
+                ctx.strokeRect(x, y, NOTE_WIDTH, NOTE_HEIGHT);
+            }
+
+            // 판정선 오버레이
+            ctx.fillStyle = 'rgba(0, 255, 0, 0.25)';
+            ctx.fillRect(0, HIT_LINE_Y - 6, TRACK_WIDTH, 12);
+
+            ctx.strokeStyle = 'chartreuse';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(0, HIT_LINE_Y - 6);
+            ctx.lineTo(TRACK_WIDTH, HIT_LINE_Y - 6);
+            ctx.moveTo(0, HIT_LINE_Y + 6);
+            ctx.lineTo(TRACK_WIDTH, HIT_LINE_Y + 6);
+            ctx.stroke();
+
+            ctx.restore();
+            rafIdRef.current = requestAnimationFrame(draw);
+        };
+
+        rafIdRef.current = requestAnimationFrame(draw);
+        return () => {
+            if (rafIdRef.current != null) {
+                cancelAnimationFrame(rafIdRef.current);
+                rafIdRef.current = null;
+            }
+        };
+    }, []);
+
     const handleTestSound = async () => {
         if (Tone.getContext().state !== 'running') {
             await Tone.start();
@@ -198,20 +336,6 @@ const Track = () => {
         }
         synthRef.current?.triggerAttackRelease(['C4', 'E4', 'G4'], '8n');
     };
-
-    const activeGroup = noteGroups.length ? noteGroups[currentStep % noteGroups.length] : [];
-    const activeUids = useMemo(
-        () => new Set((activeGroup ?? []).map((n) => n._uid)),
-        [activeGroup]
-    );
-    const cursorTime = activeGroup?.[0]?.time ?? 0;
-
-    const beatsPerSecond = bpm / 60;
-    const midiValues = notes.map((n) => n.midi);
-    const minMidi = midiValues.length ? Math.min(...midiValues) : MIN_MIDI;
-    const maxMidi = midiValues.length ? Math.max(...midiValues) : MAX_MIDI;
-    const midiSpan = Math.max(maxMidi - minMidi, 1);
-    const usableWidth = Math.max(TRACK_WIDTH - NOTE_WIDTH - PADDING * 2, 1);
 
     return (
         <div>
@@ -250,48 +374,11 @@ const Track = () => {
                 </label>
             </div>
 
-            <div
-                className="track-viewport"
-                style={{
-                    width: `${TRACK_WIDTH}px`,
-                    height: `${TRACK_HEIGHT}px`,
-                }}
-            >
-                <div className="track-canvas">
-                    <div
-                        className="track-hit-line"
-                        style={{ top: `${HIT_LINE_Y - 6}px` }}
-                    />
-
-                    {notes.map((note) => {
-                        const isActive = activeUids.has(note._uid);
-
-                        // X: 음높이(midi)에 따른 좌우 위치
-                        const midiRatio = Math.min(Math.max((note.midi - minMidi) / midiSpan, 0), 1);
-                        const left = PADDING + midiRatio * usableWidth;
-
-                        // Y: 고정 높이(NOTE_HEIGHT) 기준으로 판정선(HIT_LINE_Y)에 맞춰 배치
-                        const deltaSec = note.time - cursorTime;
-                        const top = HIT_LINE_Y - deltaSec * beatsPerSecond * pixelsPerBeat - NOTE_HEIGHT;
-
-                        return (
-                            <div
-                                key={note._uid}
-                                className={`track-note${isActive ? ' is-active' : ''}`}
-                                style={{
-                                    left: `${left}px`,
-                                    top: `${top}px`,
-                                    width: `${NOTE_WIDTH}px`,
-                                    height: `${NOTE_HEIGHT}px`,
-                                    lineHeight: `${NOTE_HEIGHT}px`,
-                                    transition: `top ${maxGroupGapMs}ms ease-out, background-color ${maxGroupGapMs}ms ease-out`,
-                                }}
-                            >
-                                {note.name}
-                            </div>
-                        );
-                    })}
-                </div>
+            <div className="track-viewport" style={{ width: `${TRACK_WIDTH}px`, height: `${TRACK_HEIGHT}px` }}>
+                <canvas
+                    ref={canvasRef}
+                    style={{ width: `${TRACK_WIDTH}px`, height: `${TRACK_HEIGHT}px`, display: 'block' }}
+                />
             </div>
         </div>
     );
