@@ -1,3 +1,4 @@
+
 import { useData } from '../stores/useData';
 
 export default function MidiSelector() {
@@ -6,29 +7,36 @@ export default function MidiSelector() {
     const setMidiId = useData((state) => state.setMidiId);
 
     const handleSelect = (e) => {
-        setMidiId(Number(e.target.value));
+        const id = Number(e.target.value);
+        setMidiId(id);
     };
 
     const handleFileChange = (e) => {
-        const file = e.target.files[0];
+        const file = e.target.files?.[0];
+
         if (!file) return;
 
         const blobUrl = URL.createObjectURL(file);
+
         const newId = Date.now();
+
         const title = file.name.replace(/\.(mid|midi)$/i, '');
 
-        useData.setState((state) => ({
-            midiList: [
-                ...state.midiList,
-                { id: newId, title, artist: 'Local File', url: blobUrl },
-            ],
-            currentMidiId: newId,
-        }));
+        useData.getState().addLocalMidi({
+            title,
+            artist: 'Local File',
+            url: blobUrl,
+        });
+
+        e.target.value = '';
     };
 
     return (
         <div>
-            <select value={currentMidiId} onChange={handleSelect}>
+            <select
+                value={currentMidiId}
+                onChange={handleSelect}
+            >
                 {midiList.map((midi) => (
                     <option key={midi.id} value={midi.id}>
                         {midi.title} - {midi.artist}

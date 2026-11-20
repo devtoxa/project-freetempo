@@ -1,3 +1,4 @@
+
 import { create } from 'zustand';
 
 const midiList = [
@@ -68,44 +69,77 @@ const soundFontList = [
 export const useData = create((set) => ({
     midiList,
     soundFontList,
+
     currentSoundFontId: 1,
     currentMidiId: 1,
 
     isAutoPlay: false,
     autoPlaySessionId: 0,
+
     currentStep: 0,
     totalSteps: 0,
     seekVersion: 0,
 
-    setSoundFontId: (id) => set({ currentSoundFontId: Number(id) }),
-    setMidiId: (id) =>
+    setSoundFontId: (id) => {
+        set({
+            currentSoundFontId: Number(id),
+        });
+    },
+
+    setMidiId: (id) => {
         set({
             currentMidiId: Number(id),
             isAutoPlay: false,
             currentStep: 0,
-        }),
+            totalSteps: 0,
+            autoPlaySessionId: 0,
+            seekVersion: 0,
+        });
+    },
+
     addLocalMidi: ({ title, artist = 'Local File', url }) => {
         const newId = Date.now();
+
         set((state) => ({
-            midiList: [...state.midiList, { id: newId, title, artist, url }],
+            midiList: [
+                ...state.midiList,
+                { id: newId, title, artist, url },
+            ],
             currentMidiId: newId,
             isAutoPlay: false,
             currentStep: 0,
+            totalSteps: 0,
         }));
     },
 
-    startAutoPlay: () =>
+    startAutoPlay: () => {
         set((state) => ({
             isAutoPlay: true,
             autoPlaySessionId: state.autoPlaySessionId + 1,
-        })),
-    stopAutoPlay: () => set({ isAutoPlay: false }),
-    setCurrentStep: (step) => set({ currentStep: Math.max(0, Number(step) || 0) }),
-    setTotalSteps: (total) => set({ totalSteps: Math.max(0, Number(total) || 0) }),
-    seekToStep: (step) =>
+        }));
+    },
+
+    stopAutoPlay: () => {
+        set({ isAutoPlay: false });
+    },
+
+    setCurrentStep: (step) => {
+        set({
+            currentStep: Math.max(0, Number(step) || 0),
+        });
+    },
+
+    setTotalSteps: (total) => {
+        set({
+            totalSteps: Math.max(0, Number(total) || 0),
+        });
+    },
+
+    seekToStep: (step) => {
         set((state) => ({
             currentStep: Math.max(0, Number(step) || 0),
             isAutoPlay: false,
             seekVersion: state.seekVersion + 1,
-        })),
+        }));
+    },
 }));

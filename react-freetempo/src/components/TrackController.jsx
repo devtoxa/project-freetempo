@@ -1,9 +1,11 @@
+
 import { useData } from '../stores/useData';
 
 const TrackController = () => {
     const isAutoPlay = useData((state) => state.isAutoPlay);
     const currentStep = useData((state) => state.currentStep);
     const totalSteps = useData((state) => state.totalSteps);
+
     const startAutoPlay = useData((state) => state.startAutoPlay);
     const stopAutoPlay = useData((state) => state.stopAutoPlay);
     const seekToStep = useData((state) => state.seekToStep);
@@ -13,6 +15,7 @@ const TrackController = () => {
 
     return (
         <div className="track-controller">
+
             <button
                 type="button"
                 onClick={isAutoPlay ? stopAutoPlay : startAutoPlay}
@@ -30,6 +33,7 @@ const TrackController = () => {
             </button>
 
             <label className="track-controller-range">
+
                 <input
                     type="range"
                     min={0}
@@ -38,10 +42,15 @@ const TrackController = () => {
                     onChange={(e) => seekToStep(Number(e.target.value))}
                     disabled={totalSteps <= 1}
                 />
+
                 <span>
-                    {totalSteps > 0 ? `${Math.min(currentStep + 1, totalSteps)} / ${totalSteps}` : '0 / 0'}
+                    {totalSteps > 0
+                        ? `${currentStep + 1} / ${totalSteps}`
+                        : '0 / 0'}
                 </span>
+
             </label>
+
         </div>
     );
 };
