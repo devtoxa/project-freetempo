@@ -45,9 +45,9 @@ const soundFontList = [
             C8: 'C8.mp3',
         },
     },
-    { id: 2, fontName: 'Synth', type: 'synth' },
-    { id: 3, fontName: 'Electric Piano', type: 'fm' },
-    { id: 4, fontName: 'Soft Synth', type: 'am' },
+    { id: 2, fontName: 'Soft Synth', type: 'am' },
+    // { id: 3, fontName: 'Synth', type: 'synth' },
+    // { id: 4, fontName: 'Electric Piano', type: 'fm' },
 
 ];
 
