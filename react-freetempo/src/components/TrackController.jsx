@@ -9,6 +9,8 @@ const TrackController = () => {
     const startAutoPlay = useData((state) => state.startAutoPlay);
     const stopAutoPlay = useData((state) => state.stopAutoPlay);
     const seekToStep = useData((state) => state.seekToStep);
+    const volume = useData((state) => state.volume ?? -6);
+    const setVolume = useData((state) => state.setVolume);
 
     const maxStep = Math.max(totalSteps - 1, 0);
     const safeStep = Math.min(currentStep, maxStep);
@@ -49,6 +51,21 @@ const TrackController = () => {
                         : '0 / 0'}
                 </span>
 
+            </label>
+
+            <label className="track-controller-volume">
+                <span>볼륨</span>
+
+                <input
+                    type="range"
+                    min={-40}
+                    max={0}
+                    step={1}
+                    value={volume}
+                    onChange={(e) => setVolume(Number(e.target.value))}
+                />
+
+                <span>{volume} dB</span>
             </label>
 
         </div>

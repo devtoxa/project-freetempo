@@ -29,10 +29,6 @@ const PADDING_X = 24;
 const PADDING_TOP = 18;
 const PADDING_BOTTOM = 18;
 
-const DEFAULT_MOVE_MS = 220;
-const MANUAL_MOVE_MS = 110;
-
-
 // ==========================================
 // MIDI 파일 경로
 // ==========================================
@@ -45,15 +41,12 @@ const midiUrls = import.meta.glob('../midi/*.mid', {
 
 function resolveMidiURL(midiUrl) {
     if (!midiUrl) return null;
-
+    if (midiUrl.startsWith('blob:') || midiUrl.startsWith('http')) {
+        return midiUrl;
+    }
     const filename = midiUrl.split('/').pop();
-
-    return (
-        midiUrls[`../midi/${filename}`] ||
-        midiUrl
-    );
+    return midiUrls[`../midi/${filename}`] || midiUrl;
 }
-
 
 // ==========================================
 // 악기 생성
@@ -69,13 +62,11 @@ function createInstrument(font) {
     }
 
     const Voice = synthMap[font?.type] ?? Tone.Synth;
-
     return new Tone.PolySynth(Voice).toDestination();
 }
 
-
 // ==========================================
-// MIDI 노트 그룹화
+// MIDI 노트 그룹화 (동시 타이밍 단위)
 // ==========================================
 
 function groupNotesByTime(notes, threshold = 0.02) {
@@ -101,16 +92,11 @@ function groupNotesByTime(notes, threshold = 0.02) {
     return groups;
 }
 
-
 // ==========================================
 // Track Component
 // ==========================================
 
 const Track = () => {
-    // --------------------------------------
-    // Zustand 상태
-    // --------------------------------------
-
     const soundFontList = useData((state) => state.soundFontList ?? []);
     const currentSoundFontId = useData((state) => state.currentSoundFontId);
     const currentMidiId = useData((state) => state.currentMidiId);
@@ -125,11 +111,6 @@ const Track = () => {
     const pixelsPerBeat = useData((state) => state.pixelsPerBeat ?? 80);
     const volume = useData((state) => state.volume ?? -6);
 
-
-    // --------------------------------------
-    // 현재 MIDI / 사운드폰트
-    // --------------------------------------
-
     const currentFont =
         soundFontList.find(
             (font) => Number(font.id) === Number(currentSoundFontId)
@@ -140,13 +121,10 @@ const Track = () => {
             (midi) => Number(midi.id) === Number(currentMidiId)
         ) ?? midiList[0];
 
-
-    // --------------------------------------
-    // Ref
-    // --------------------------------------
-
     const synthRef = useRef(null);
+    const volumeRef = useRef(volume);
     const stepRef = useRef(0);
+    const lastSeekVersionRef = useRef(seekVersion);
     const canvasRef = useRef(null);
     const viewportRef = useRef(null);
     const rafIdRef = useRef(null);
@@ -168,28 +146,14 @@ const Track = () => {
         setStoreCurrentStep: null,
     });
 
-
-    // --------------------------------------
-    // React 상태
-    // --------------------------------------
-
     const [notes, setNotes] = useState([]);
     const [bpm, setBpm] = useState(DEFAULT_BPM);
     const [currentStep, setCurrentStep] = useState(0);
+    const [playingStep, setPlayingStep] = useState(0);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
 
-
-    // ======================================
-    // MIDI 노트 그룹 계산
-    // ======================================
-
     const noteGroups = useMemo(() => groupNotesByTime(notes), [notes]);
-
-
-    // ======================================
-    // MIDI 음역대 계산
-    // ======================================
 
     const midiRange = useMemo(() => {
         if (!notes.length) {
@@ -215,37 +179,20 @@ const Track = () => {
         };
     }, [notes]);
 
+    // 재생 중인 그룹(강조 표시)
+    const playingGroup = useMemo(() => {
+        if (!noteGroups.length) return [];
 
-    // ======================================
-    // 노트 그룹 간격 계산
-    // ======================================
+        const safeIdx = Math.min(
+            Math.max(playingStep, 0),
+            noteGroups.length - 1
+        );
 
-    const maxGroupGapMs = useMemo(() => {
-        if (noteGroups.length < 2) {
-            return DEFAULT_MOVE_MS;
-        }
+        return noteGroups[safeIdx] ?? [];
+    }, [noteGroups, playingStep]);
 
-        let maxGapSec = 0;
-
-        for (let i = 0; i < noteGroups.length - 1; i++) {
-            const currentTime = noteGroups[i][0]?.time ?? 0;
-            const nextTime = noteGroups[i + 1][0]?.time ?? currentTime;
-            const gap = nextTime - currentTime;
-
-            if (gap > maxGapSec) {
-                maxGapSec = gap;
-            }
-        }
-
-        return Math.min(Math.max(maxGapSec * 1000, 140), 420);
-    }, [noteGroups]);
-
-
-    // ======================================
-    // 현재 활성 노트
-    // ======================================
-
-    const activeGroup = useMemo(() => {
+    // 다음에 이동할 그룹(커서 스크롤 타깃)
+    const targetGroup = useMemo(() => {
         if (!noteGroups.length) return [];
 
         const safeIdx = Math.min(
@@ -256,19 +203,13 @@ const Track = () => {
         return noteGroups[safeIdx] ?? [];
     }, [noteGroups, currentStep]);
 
-    const targetCursorTime = activeGroup?.[0]?.time ?? 0;
-
-
-    // ======================================
-    // Canvas 렌더링 상태
-    // ======================================
+    const targetCursorTime = targetGroup?.[0]?.time ?? 0;
 
     const renderStateRef = useRef({
         notes: [],
         noteGroups: [],
         bpm: DEFAULT_BPM,
         pixelsPerBeat: 80,
-        maxGroupGapMs: DEFAULT_MOVE_MS,
         targetCursorTime: 0,
         midiRange: {
             minMidi: MIN_MIDI,
@@ -280,15 +221,8 @@ const Track = () => {
         lastFrameTime: null,
     });
 
-
-    // --------------------------------------
-    // 노트 재생 함수
-    // --------------------------------------
-
     const playGroup = useCallback((group, when) => {
-        if (!group || !synthRef.current) {
-            return;
-        }
+        if (!group || !synthRef.current) return;
 
         const scheduleTime =
             typeof when === 'number' && Number.isFinite(when)
@@ -296,9 +230,7 @@ const Track = () => {
                 : undefined;
 
         for (const note of group) {
-            if (!note?.name) {
-                continue;
-            }
+            if (!note?.name) continue;
 
             const duration =
                 Number.isFinite(note.duration) && note.duration > 0
@@ -314,11 +246,6 @@ const Track = () => {
         }
     }, []);
 
-
-    // --------------------------------------
-    // 콜백 및 렌더 상태 동기화
-    // --------------------------------------
-
     useEffect(() => {
         callbacksRef.current = {
             playGroup,
@@ -332,40 +259,35 @@ const Track = () => {
         renderStateRef.current.noteGroups = noteGroups;
         renderStateRef.current.bpm = bpm;
         renderStateRef.current.pixelsPerBeat = pixelsPerBeat;
-        renderStateRef.current.maxGroupGapMs = maxGroupGapMs;
         renderStateRef.current.targetCursorTime = targetCursorTime;
         renderStateRef.current.midiRange = midiRange;
         renderStateRef.current.activeUids = new Set(
-            activeGroup.map((note) => note._uid)
+            playingGroup.map((note) => note._uid)
         );
     }, [
         notes,
         noteGroups,
         bpm,
         pixelsPerBeat,
-        maxGroupGapMs,
         targetCursorTime,
         midiRange,
-        activeGroup,
+        playingGroup,
     ]);
 
-
-    // ======================================
     // MIDI 로딩
-    // ======================================
-
     useEffect(() => {
         if (!currentMidi?.url) {
             setNotes([]);
             setTotalSteps(0);
             setCurrentStep(0);
+            setPlayingStep(0);
             setStoreCurrentStep(0);
             return;
         }
 
         let active = true;
 
-        stopAutoPlay();
+        stopAutoPlay?.();
         autoPlayRef.current.active = false;
 
         setLoading(true);
@@ -373,6 +295,7 @@ const Track = () => {
         setNotes([]);
         setBpm(DEFAULT_BPM);
         setCurrentStep(0);
+        setPlayingStep(0);
         setTotalSteps(0);
         setStoreCurrentStep(0);
         stepRef.current = 0;
@@ -416,6 +339,7 @@ const Track = () => {
                 setNotes(extractedNotes);
                 setBpm(midiBpm);
                 setCurrentStep(0);
+                setPlayingStep(0);
                 setTotalSteps(groups.length);
                 setStoreCurrentStep(0);
 
@@ -427,6 +351,7 @@ const Track = () => {
                 setNotes([]);
                 setTotalSteps(0);
                 setCurrentStep(0);
+                setPlayingStep(0);
                 setStoreCurrentStep(0);
                 setError(err.message);
             } finally {
@@ -448,12 +373,16 @@ const Track = () => {
         setStoreCurrentStep,
     ]);
 
-
-    // ======================================
-    // 처음으로 / 슬라이더 동기화
-    // ======================================
-
+    // 슬라이더 / 처음으로 이동 동기화
+    // 일반 키 입력/자동재생의 currentStep 변경에는 스냅하지 않고,
+    // 실제 seek 동작(seekVersion 증가)에서만 커서를 즉시 이동시킵니다.
     useEffect(() => {
+        if (lastSeekVersionRef.current === seekVersion) {
+            return;
+        }
+
+        lastSeekVersionRef.current = seekVersion;
+
         const safeStep = Math.min(
             storeCurrentStep,
             Math.max(noteGroups.length - 1, 0)
@@ -461,6 +390,7 @@ const Track = () => {
 
         stepRef.current = safeStep;
         setCurrentStep(safeStep);
+        setPlayingStep(safeStep);
 
         if (noteGroups.length > 0) {
             const group = noteGroups[safeStep];
@@ -471,14 +401,19 @@ const Track = () => {
         }
     }, [seekVersion, storeCurrentStep, noteGroups]);
 
+    // 볼륨 변경 (악기 재생성 없이 실시간 반영)
+    useEffect(() => {
+        volumeRef.current = volume;
 
-    // ======================================
+        if (synthRef.current) {
+            synthRef.current.volume.value = volume;
+        }
+    }, [volume]);
+
     // 악기 생성 및 정리
-    // ======================================
-
     useEffect(() => {
         const synth = createInstrument(currentFont);
-        synth.volume.value = volume;
+        synth.volume.value = volumeRef.current;
         synthRef.current = synth;
 
         return () => {
@@ -489,24 +424,9 @@ const Track = () => {
                 synthRef.current = null;
             }
         };
-    }, [currentFont, volume]);
+    }, [currentFont]);
 
-
-    // ======================================
-    // 볼륨 변경
-    // ======================================
-
-    useEffect(() => {
-        if (synthRef.current) {
-            synthRef.current.volume.value = volume;
-        }
-    }, [volume]);
-
-
-    // ======================================
     // 자동 재생
-    // ======================================
-
     useEffect(() => {
         if (!isAutoPlay) {
             autoPlayRef.current.active = false;
@@ -514,7 +434,7 @@ const Track = () => {
         }
 
         if (!noteGroups.length || !synthRef.current) {
-            stopAutoPlay();
+            stopAutoPlay?.();
             return;
         }
 
@@ -541,6 +461,7 @@ const Track = () => {
                 const startAudioSec = Tone.now();
 
                 playGroup(currentGroup, startAudioSec);
+                setPlayingStep(idx);
 
                 const nextStep = idx + 1;
                 stepRef.current = nextStep;
@@ -555,7 +476,7 @@ const Track = () => {
                 };
             } catch (err) {
                 console.error('[Audio] Playback error:', err);
-                stopAutoPlay();
+                stopAutoPlay?.();
             }
         };
 
@@ -574,11 +495,7 @@ const Track = () => {
         setStoreCurrentStep,
     ]);
 
-
-    // ======================================
     // Canvas 크기 감지
-    // ======================================
-
     useEffect(() => {
         const element = viewportRef.current;
         if (!element) return;
@@ -610,11 +527,7 @@ const Track = () => {
         };
     }, []);
 
-
-    // ======================================
-    // 키보드 수동 재생
-    // ======================================
-
+    // 키보드 입력 시 다음 노트 그룹 시간으로 이동하며 소리 재생
     useEffect(() => {
         const handleKeyDown = (e) => {
             if (e.repeat) return;
@@ -634,12 +547,14 @@ const Track = () => {
 
             if (autoPlayRef.current.active) {
                 autoPlayRef.current.active = false;
-                stopAutoPlay();
+                stopAutoPlay?.();
             }
 
             const idx = stepRef.current % noteGroups.length;
             const group = noteGroups[idx];
             const nextStep = (idx + 1) % noteGroups.length;
+
+            setPlayingStep(idx);
 
             stepRef.current = nextStep;
             setCurrentStep(nextStep);
@@ -675,11 +590,7 @@ const Track = () => {
         setStoreCurrentStep,
     ]);
 
-
-    // ======================================
-    // Canvas 렌더링 루프
-    // ======================================
-
+    // Canvas 렌더링 루프: displayCursorTime을 부드럽게 이동시켜 노트가 스무스하게 흐름
     useEffect(() => {
         const canvas = canvasRef.current;
         if (!canvas) return;
@@ -730,6 +641,7 @@ const Track = () => {
 
                 let idx = stepRef.current % state.noteGroups.length;
                 let triggered = false;
+                let lastTriggered = -1;
 
                 while (idx < state.noteGroups.length) {
                     const nextGroup = state.noteGroups[idx];
@@ -743,6 +655,7 @@ const Track = () => {
                         );
 
                         runPlayGroup?.(nextGroup, scheduledWhen);
+                        lastTriggered = idx;
                         idx += 1;
                         triggered = true;
                     } else {
@@ -751,9 +664,14 @@ const Track = () => {
                 }
 
                 if (triggered) {
+                    if (lastTriggered >= 0) {
+                        setPlayingStep(lastTriggered);
+                    }
+
                     if (idx >= state.noteGroups.length) {
                         stepRef.current = 0;
                         setCurrentStep(0);
+                        setPlayingStep(0);
                         runSetStoreStep?.(0);
                         state.displayCursorTime = 0;
                         autoPlayRef.current.active = false;
@@ -765,23 +683,25 @@ const Track = () => {
                     }
                 }
             } else {
+                // 자동재생과 동일한 1x 속도로 다음 노트를 향해 커서를 이동
                 const diff =
                     state.targetCursorTime - state.displayCursorTime;
 
-                if (Math.abs(diff) < 0.0005) {
+                if (diff <= 0) {
+                    // 루프 wrap / 뒤로 이동은 즉시 스냅
                     state.displayCursorTime = state.targetCursorTime;
                 } else {
-                    const alpha = 1 - Math.exp(-dtMs / MANUAL_MOVE_MS);
-                    state.displayCursorTime += diff * alpha;
+                    state.displayCursorTime = Math.min(
+                        state.displayCursorTime + dtMs / 1000,
+                        state.targetCursorTime
+                    );
                 }
             }
 
-            // 배경 클리어
             ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
             ctx.fillStyle = '#000000';
             ctx.fillRect(0, 0, width, height);
 
-            // 패딩이 적용된 내부 그리기 영역
             const innerX = PADDING_X;
             const innerY = PADDING_TOP;
             const innerWidth = Math.max(width - PADDING_X * 2, 1);
@@ -798,27 +718,22 @@ const Track = () => {
             const pxPerSec = (state.bpm / 60) * state.pixelsPerBeat;
             const currentNotes = state.notes;
             const { minMidi, midiSpan } = state.midiRange;
-            const usableWidth = Math.max(innerWidth - NOTE_WIDTH, 1);
             const usableHeight = Math.max(
                 innerHeight - NOTE_HEIGHT,
                 1
             );
 
-            // 일반 노트 먼저 그린 뒤 강조(active) 노트를 위에 그려 테두리 가림 방지
             const activeNotesToDraw = [];
 
             for (let i = 0; i < currentNotes.length; i++) {
                 const note = currentNotes[i];
                 const deltaSec = note.time - state.displayCursorTime;
+                const x = innerX + deltaSec * pxPerSec;
 
-                const rawY =
-                    innerY +
-                    usableHeight -
-                    deltaSec * pxPerSec;
-
+                // 화면 왼쪽/오른쪽 영역을 벗어난 노트만 스킵해 불필요한 드로우 방지
                 if (
-                    rawY + NOTE_HEIGHT < innerY - NOTE_HEIGHT ||
-                    rawY > innerY + innerHeight + 40
+                    x + NOTE_WIDTH < innerX - NOTE_WIDTH ||
+                    x > innerX + innerWidth + 80
                 ) {
                     continue;
                 }
@@ -827,21 +742,26 @@ const Track = () => {
                     Math.max((note.midi - minMidi) / midiSpan, 0),
                     1
                 );
-                const x = innerX + midiRatio * usableWidth;
-                const y = Math.min(
-                    Math.max(rawY, innerY),
-                    innerY + usableHeight
-                );
+                const y =
+                    innerY +
+                    (1 - midiRatio) * usableHeight;
 
-                const isActive = state.activeUids.has(note._uid);
+                // 지나간 노트(x < innerX)는 즉시 지우지 않고 왼쪽 경계 근처에서 서서히 감쇠
+                const distPastLeft = Math.max(innerX - x, 0);
+                const fadeAlpha =
+                    distPastLeft > 0
+                        ? Math.max(1 - distPastLeft / 60, 0.15)
+                        : 1;
 
-                if (isActive) {
-                    activeNotesToDraw.push({ note, x, y });
+                if (state.activeUids.has(note._uid)) {
+                    activeNotesToDraw.push({ note, x, y, fadeAlpha });
                     continue;
                 }
 
                 const isSharp = note.name?.includes('#');
 
+                ctx.save();
+                ctx.globalAlpha = fadeAlpha;
                 ctx.fillStyle = isSharp ? '#b58900' : '#3b82f6';
                 ctx.beginPath();
                 ctx.rect(x, y, NOTE_WIDTH, NOTE_HEIGHT);
@@ -850,12 +770,15 @@ const Track = () => {
                 ctx.lineWidth = 2;
                 ctx.strokeStyle = '#0f172a';
                 ctx.stroke();
+                ctx.restore();
             }
 
-            // 현재 강조 노트 렌더링 (최상단 + 선명한 테두리)
+            // 현재 타겟 노트 그룹 강조
             for (let i = 0; i < activeNotesToDraw.length; i++) {
-                const { x, y } = activeNotesToDraw[i];
+                const { x, y, fadeAlpha } = activeNotesToDraw[i];
 
+                ctx.save();
+                ctx.globalAlpha = fadeAlpha;
                 ctx.fillStyle = 'goldenrod';
                 ctx.beginPath();
                 ctx.rect(x, y, NOTE_WIDTH, NOTE_HEIGHT);
@@ -865,6 +788,7 @@ const Track = () => {
                 ctx.lineJoin = 'round';
                 ctx.strokeStyle = '#fff8cc';
                 ctx.stroke();
+                ctx.restore();
             }
 
             ctx.restore();
@@ -882,11 +806,6 @@ const Track = () => {
         };
     }, []);
 
-
-    // ======================================
-    // 화면 출력
-    // ======================================
-
     return (
         <div className="Track">
             <div
@@ -895,6 +814,9 @@ const Track = () => {
                     alignItems: 'center',
                     gap: '12px',
                     flexWrap: 'wrap',
+                    position: 'relative',
+                    zIndex: 5,
+                    padding: '10px 16px',
                 }}
             >
                 <span>{currentFont?.fontName}</span>

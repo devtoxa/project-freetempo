@@ -80,6 +80,8 @@ export const useData = create((set) => ({
     totalSteps: 0,
     seekVersion: 0,
 
+    volume: -6,
+
     setSoundFontId: (id) => {
         set({
             currentSoundFontId: Number(id),
@@ -132,6 +134,16 @@ export const useData = create((set) => ({
     setTotalSteps: (total) => {
         set({
             totalSteps: Math.max(0, Number(total) || 0),
+        });
+    },
+
+    setVolume: (value) => {
+        const numeric = Number(value);
+
+        set({
+            volume: Number.isFinite(numeric)
+                ? Math.max(-40, Math.min(0, numeric))
+                : -6,
         });
     },
 
