@@ -30,6 +30,10 @@ const PADDING_X = 24;
 const PADDING_TOP = 18;
 const PADDING_BOTTOM = 18;
 
+// 강조 노트가 화면 좌측으로 벗어나지 않도록 유지할 앵커 위치와 카메라 스무딩 시간
+const FOCUS_ANCHOR_RATIO = 0.18;
+const FOCUS_SMOOTHING_MS = 120;
+
 // ==========================================
 // MIDI 파일 경로
 // ==========================================
@@ -218,6 +222,7 @@ const Track = () => {
             midiSpan: MAX_MIDI - MIN_MIDI,
         },
         activeUids: new Set(),
+        activeFocusTime: null,
         displayCursorTime: 0,
         lastFrameTime: null,
     });
@@ -312,6 +317,8 @@ const Track = () => {
         renderStateRef.current.activeUids = new Set(
             playingGroup.map((note) => note._uid)
         );
+        renderStateRef.current.activeFocusTime =
+            playingGroup[0]?.time ?? null;
     }, [
         notes,
         noteGroups,
@@ -330,6 +337,8 @@ const Track = () => {
             setCurrentStep(0);
             setPlayingStep(0);
             setStoreCurrentStep(0);
+            renderStateRef.current.activeFocusTime = null;
+            renderStateRef.current.displayCursorTime = 0;
             return;
         }
 
@@ -347,6 +356,7 @@ const Track = () => {
         setTotalSteps(0);
         setStoreCurrentStep(0);
         stepRef.current = 0;
+        renderStateRef.current.activeFocusTime = null;
         renderStateRef.current.displayCursorTime = 0;
         renderStateRef.current.lastFrameTime = null;
 
@@ -392,6 +402,8 @@ const Track = () => {
                 setStoreCurrentStep(0);
 
                 stepRef.current = 0;
+                renderStateRef.current.activeFocusTime =
+                    groups[0]?.[0]?.time ?? null;
                 renderStateRef.current.displayCursorTime = 0;
                 renderStateRef.current.lastFrameTime = null;
             } catch (err) {
@@ -401,6 +413,7 @@ const Track = () => {
                 setCurrentStep(0);
                 setPlayingStep(0);
                 setStoreCurrentStep(0);
+                renderStateRef.current.activeFocusTime = null;
                 setError(err.message);
             } finally {
                 if (active) {
@@ -441,10 +454,22 @@ const Track = () => {
             noteGroups.length > 0 ? noteGroups[safeStep] : null;
         const groupTime = group?.[0]?.time ?? 0;
 
+        const pxPerSec = (bpm / 60) * pixelsPerBeat;
+        const innerWidth = Math.max(
+            sizeRef.current.width - PADDING_X * 2,
+            1
+        );
+        const anchorSec =
+            (innerWidth * FOCUS_ANCHOR_RATIO) / Math.max(pxPerSec, 1);
+
         stepRef.current = safeStep;
         setCurrentStep(safeStep);
         setPlayingStep(safeStep);
-        renderStateRef.current.displayCursorTime = groupTime;
+        renderStateRef.current.displayCursorTime = Math.max(
+            groupTime - anchorSec,
+            0
+        );
+        renderStateRef.current.activeFocusTime = groupTime;
 
         // 자동 재생 중이면 새 위치에서 이어서 재생하도록 앵커 재설정
         if (autoPlayRef.current.active) {
@@ -453,7 +478,13 @@ const Track = () => {
             autoPlayRef.current.startSongTime = groupTime;
             autoPlayRef.current.startAudioSec = Tone.now();
         }
-    }, [seekVersion, storeCurrentStep, noteGroups]);
+    }, [
+        seekVersion,
+        storeCurrentStep,
+        noteGroups,
+        bpm,
+        pixelsPerBeat,
+    ]);
 
     // 볼륨 변경 (악기 재생성 없이 실시간 반영)
     useEffect(() => {
@@ -521,7 +552,23 @@ const Track = () => {
                 stepRef.current = nextStep;
                 setCurrentStep(nextStep);
                 setStoreCurrentStep(nextStep);
-                renderStateRef.current.displayCursorTime = startSongTime;
+
+                const renderState = renderStateRef.current;
+                const pxPerSec =
+                    (renderState.bpm / 60) * renderState.pixelsPerBeat;
+                const innerWidth = Math.max(
+                    sizeRef.current.width - PADDING_X * 2,
+                    1
+                );
+                const anchorSec =
+                    (innerWidth * FOCUS_ANCHOR_RATIO) /
+                    Math.max(pxPerSec, 1);
+
+                renderState.activeFocusTime = startSongTime;
+                renderState.displayCursorTime = Math.max(
+                    startSongTime - anchorSec,
+                    0
+                );
 
                 autoPlayRef.current = {
                     active: true,
@@ -659,6 +706,16 @@ const Track = () => {
                     : Math.min(Math.max(now - state.lastFrameTime, 1), 32);
             state.lastFrameTime = now;
 
+            const innerX = PADDING_X;
+            const innerY = PADDING_TOP;
+            const innerWidth = Math.max(width - PADDING_X * 2, 1);
+            const innerHeight = Math.max(
+                height - PADDING_TOP - PADDING_BOTTOM,
+                1
+            );
+
+            const pxPerSec = (state.bpm / 60) * state.pixelsPerBeat;
+
             if (
                 autoPlayRef.current.active &&
                 state.noteGroups.length > 0
@@ -670,8 +727,6 @@ const Track = () => {
                 );
                 const songTime =
                     autoPlayRef.current.startSongTime + elapsedSec;
-
-                state.displayCursorTime = songTime;
 
                 let idx = stepRef.current % state.noteGroups.length;
                 let triggered = false;
@@ -700,6 +755,12 @@ const Track = () => {
                 if (triggered) {
                     if (lastTriggered >= 0) {
                         setPlayingStep(lastTriggered);
+
+                        const triggeredGroup =
+                            state.noteGroups[lastTriggered];
+                        state.activeFocusTime =
+                            triggeredGroup?.[0]?.time ??
+                            state.activeFocusTime;
                     }
 
                     if (idx >= state.noteGroups.length) {
@@ -707,6 +768,7 @@ const Track = () => {
                         setCurrentStep(0);
                         setPlayingStep(0);
                         runSetStoreStep?.(0);
+                        state.activeFocusTime = 0;
                         state.displayCursorTime = 0;
                         autoPlayRef.current.active = false;
                         runStopAutoPlay?.();
@@ -716,40 +778,37 @@ const Track = () => {
                         runSetStoreStep?.(idx);
                     }
                 }
-            } else {
-                // 자동재생과 동일한 1x 속도로 다음 노트를 향해 커서를 이동
-                const diff =
-                    state.targetCursorTime - state.displayCursorTime;
+            }
 
-                if (diff <= 0) {
-                    // 루프 wrap / 뒤로 이동은 즉시 스냅
-                    state.displayCursorTime = state.targetCursorTime;
-                } else {
-                    state.displayCursorTime = Math.min(
-                        state.displayCursorTime + dtMs / 1000,
-                        state.targetCursorTime
-                    );
-                }
+            // 재생 중 강조 노트를 화면 좌측 앵커 안에 유지하도록
+            // 카메라(displayCursorTime)를 부드럽게 이동시킵니다.
+            const focusTime = state.activeFocusTime;
+            const anchorSec =
+                (innerWidth * FOCUS_ANCHOR_RATIO) /
+                Math.max(pxPerSec, 1);
+            const focusTarget =
+                focusTime != null
+                    ? Math.max(focusTime - anchorSec, 0)
+                    : state.targetCursorTime;
+            const focusAlpha =
+                1 - Math.exp(-dtMs / FOCUS_SMOOTHING_MS);
+
+            state.displayCursorTime +=
+                (focusTarget - state.displayCursorTime) * focusAlpha;
+
+            if (Math.abs(focusTarget - state.displayCursorTime) < 0.0005) {
+                state.displayCursorTime = focusTarget;
             }
 
             ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
             ctx.fillStyle = '#000000';
             ctx.fillRect(0, 0, width, height);
 
-            const innerX = PADDING_X;
-            const innerY = PADDING_TOP;
-            const innerWidth = Math.max(width - PADDING_X * 2, 1);
-            const innerHeight = Math.max(
-                height - PADDING_TOP - PADDING_BOTTOM,
-                1
-            );
-
             ctx.save();
             ctx.beginPath();
             ctx.rect(innerX - 2, innerY - 2, innerWidth + 4, innerHeight + 4);
             ctx.clip();
 
-            const pxPerSec = (state.bpm / 60) * state.pixelsPerBeat;
             const currentNotes = state.notes;
             const { minMidi, midiSpan } = state.midiRange;
             const usableHeight = Math.max(
