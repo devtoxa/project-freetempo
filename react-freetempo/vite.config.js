@@ -5,4 +5,7 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   plugins: [react()],
   base: '/project-freetempo/',
+  build: {
+    chunkSizeWarningLimit: 1000, // 기본값 500 -> 1000 kB로 상향
+  },
 })
