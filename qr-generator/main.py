@@ -1,4 +1,4 @@
-import pyqrcode
-url = "https://devtoxa.github.io/project-freetempo/"
-qr = pyqrcode.create(url)
-qr.png("link_qr.png", scale=8)
+import segno
+
+qr = segno.make("https://devtoxa.github.io/project-freetempo/")
+qr.save("qr.png", scale=5)
