@@ -17,7 +17,7 @@ const TrackController = () => {
 
     return (
         <div className="track-controller">
-
+            <div className="Key">[트랙 컨트롤러]</div>
             <button
                 type="button"
                 onClick={isAutoPlay ? stopAutoPlay : startAutoPlay}
@@ -33,40 +33,44 @@ const TrackController = () => {
             >
                 처음으로
             </button>
+            <div>
+                <div className="Key">[위치]</div>
+                <label className="track-controller-range">
+                    <input
+                        type="range"
+                        min={0}
+                        max={maxStep}
+                        value={safeStep}
+                        onChange={(e) => seekToStep(Number(e.target.value))}
+                        disabled={totalSteps <= 1}
+                    />
 
-            <label className="track-controller-range">
+                    <span>
+                        {totalSteps > 0
+                            ? `${currentStep + 1} / ${totalSteps}`
+                            : '0 / 0'}
+                    </span>
 
-                <input
-                    type="range"
-                    min={0}
-                    max={maxStep}
-                    value={safeStep}
-                    onChange={(e) => seekToStep(Number(e.target.value))}
-                    disabled={totalSteps <= 1}
-                />
+                </label>
+                <div >
+                    <div className="Key">[볼륨]</div>
+                    <label className="track-controller-volume">
+                        <input
+                            type="range"
+                            min={-40}
+                            max={0}
+                            step={1}
+                            value={volume}
+                            onChange={(e) => setVolume(Number(e.target.value))}
+                        />
 
-                <span>
-                    {totalSteps > 0
-                        ? `${currentStep + 1} / ${totalSteps}`
-                        : '0 / 0'}
-                </span>
+                        <span>{volume} dB</span>
+                    </label>
+                </div>
+            </div>
 
-            </label>
 
-            <label className="track-controller-volume">
-                <span>볼륨</span>
 
-                <input
-                    type="range"
-                    min={-40}
-                    max={0}
-                    step={1}
-                    value={volume}
-                    onChange={(e) => setVolume(Number(e.target.value))}
-                />
-
-                <span>{volume} dB</span>
-            </label>
 
         </div>
     );

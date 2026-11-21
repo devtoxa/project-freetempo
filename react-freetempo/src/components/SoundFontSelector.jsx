@@ -9,7 +9,8 @@ const SoundFontSelector = () => {
         setSoundFontId(nextId);
     };
     return (
-        <div>
+        <div >
+            <div className="Key">[사운드 선택]</div>
             <select onChange={handleSelect} value={currentSoundFontId}>
                 {
                     soundFontList.map((soundFont) => (

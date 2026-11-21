@@ -6,9 +6,9 @@ const Info = () => {
     const currentMidi = midiList.find((item) => item.id === currentMidiId)
     return (
         <div className="Info">
-            <div>{currentMidi.title}</div>
-            <div>{currentMidi.artist}</div>
-            <div>{currentMidi.url}</div>
+            <div className="Key">[제목]  <span className="Value">{currentMidi.title}</span></div>
+            <div className="Key">[아티스트] <span className="Value">{currentMidi.artist}</span></div>
+            <div className="Key">[URL] <span className="Value">{currentMidi.url}</span></div>
         </div>
     )
 }

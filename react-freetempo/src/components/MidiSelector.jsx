@@ -32,7 +32,17 @@ export default function MidiSelector() {
     };
 
     return (
-        <div>
+        <div className="MidiSelector">
+            <div className="Key">[.mid 파일 로드]</div>
+            <div className="Value">
+                <input
+                    type="file"
+                    accept=".mid,.midi"
+                    onChange={handleFileChange}
+                />
+            </div>
+            <hr />
+            <div className="Key">[.mid 선택]</div>
             <select
                 value={currentMidiId}
                 onChange={handleSelect}
@@ -43,14 +53,6 @@ export default function MidiSelector() {
                     </option>
                 ))}
             </select>
-
-            <div>
-                <input
-                    type="file"
-                    accept=".mid,.midi"
-                    onChange={handleFileChange}
-                />
-            </div>
         </div>
     );
 }
