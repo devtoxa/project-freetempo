@@ -148,3 +148,31 @@ body,
 .Value {
     color: white;
 }
+
+.midi-file-error {
+    margin-top: 4px;
+    color: #f87171;
+    font-size: 12px;
+}
+
+/* 메인 화면 우측 하단 QR 코드 */
+.qr-code {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    z-index: 10;
+    width: 96px;
+    height: 96px;
+    padding: 4px;
+    background: #ffffff;
+    border-radius: 8px;
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+@media (max-width: 600px) {
+    .qr-code {
+        display: none;
+    }
+}
