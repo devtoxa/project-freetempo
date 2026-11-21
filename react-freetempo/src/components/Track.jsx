@@ -1,6 +1,7 @@
 import {
     useCallback,
     useEffect,
+    useLayoutEffect,
     useMemo,
     useRef,
     useState,
@@ -246,6 +247,53 @@ const Track = () => {
         }
     }, []);
 
+    // 다음 노트 그룹으로 진행하며 재생 (키보드 / 터치 공통)
+    const advanceStep = useCallback(() => {
+        if (!noteGroups.length || !synthRef.current) {
+            return;
+        }
+
+        if (autoPlayRef.current.active) {
+            autoPlayRef.current.active = false;
+            stopAutoPlay?.();
+        }
+
+        const idx = stepRef.current % noteGroups.length;
+        const group = noteGroups[idx];
+        const nextStep = (idx + 1) % noteGroups.length;
+
+        setPlayingStep(idx);
+
+        stepRef.current = nextStep;
+        setCurrentStep(nextStep);
+        setStoreCurrentStep(nextStep);
+
+        const triggerNotes = () => {
+            playGroup(group, Tone.now());
+        };
+
+        if (Tone.getContext().state !== 'running') {
+            Tone.start()
+                .then(() => {
+                    if (currentFont?.type === 'sampler') {
+                        return Tone.loaded();
+                    }
+                })
+                .then(triggerNotes)
+                .catch((err) => {
+                    console.error('[Audio] Playback error:', err);
+                });
+        } else {
+            triggerNotes();
+        }
+    }, [
+        noteGroups,
+        currentFont?.type,
+        playGroup,
+        stopAutoPlay,
+        setStoreCurrentStep,
+    ]);
+
     useEffect(() => {
         callbacksRef.current = {
             playGroup,
@@ -376,7 +424,8 @@ const Track = () => {
     // 슬라이더 / 처음으로 이동 동기화
     // 일반 키 입력/자동재생의 currentStep 변경에는 스냅하지 않고,
     // 실제 seek 동작(seekVersion 증가)에서만 커서를 즉시 이동시킵니다.
-    useEffect(() => {
+    // useLayoutEffect로 페인트/다음 rAF 이전에 반영해 자동재생 루프와의 경합을 막습니다.
+    useLayoutEffect(() => {
         if (lastSeekVersionRef.current === seekVersion) {
             return;
         }
@@ -388,16 +437,21 @@ const Track = () => {
             Math.max(noteGroups.length - 1, 0)
         );
 
+        const group =
+            noteGroups.length > 0 ? noteGroups[safeStep] : null;
+        const groupTime = group?.[0]?.time ?? 0;
+
         stepRef.current = safeStep;
         setCurrentStep(safeStep);
         setPlayingStep(safeStep);
+        renderStateRef.current.displayCursorTime = groupTime;
 
-        if (noteGroups.length > 0) {
-            const group = noteGroups[safeStep];
-            renderStateRef.current.displayCursorTime =
-                group?.[0]?.time ?? 0;
-        } else {
-            renderStateRef.current.displayCursorTime = 0;
+        // 자동 재생 중이면 새 위치에서 이어서 재생하도록 앵커 재설정
+        if (autoPlayRef.current.active) {
+            synthRef.current?.releaseAll?.();
+
+            autoPlayRef.current.startSongTime = groupTime;
+            autoPlayRef.current.startAudioSec = Tone.now();
         }
     }, [seekVersion, storeCurrentStep, noteGroups]);
 
@@ -527,7 +581,7 @@ const Track = () => {
         };
     }, []);
 
-    // 키보드 입력 시 다음 노트 그룹 시간으로 이동하며 소리 재생
+    // 키보드 입력 시 다음 노트 그룹으로 진행하며 소리 재생
     useEffect(() => {
         const handleKeyDown = (e) => {
             if (e.repeat) return;
@@ -541,54 +595,34 @@ const Track = () => {
                 return;
             }
 
-            if (!noteGroups.length || !synthRef.current) {
-                return;
-            }
-
-            if (autoPlayRef.current.active) {
-                autoPlayRef.current.active = false;
-                stopAutoPlay?.();
-            }
-
-            const idx = stepRef.current % noteGroups.length;
-            const group = noteGroups[idx];
-            const nextStep = (idx + 1) % noteGroups.length;
-
-            setPlayingStep(idx);
-
-            stepRef.current = nextStep;
-            setCurrentStep(nextStep);
-            setStoreCurrentStep(nextStep);
-
-            const triggerNotes = () => {
-                playGroup(group, Tone.now());
-            };
-
-            if (Tone.getContext().state !== 'running') {
-                Tone.start()
-                    .then(() => {
-                        if (currentFont?.type === 'sampler') {
-                            return Tone.loaded();
-                        }
-                    })
-                    .then(triggerNotes)
-                    .catch((err) => {
-                        console.error('[Audio] Keyboard playback error:', err);
-                    });
-            } else {
-                triggerNotes();
-            }
+            advanceStep();
         };
 
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [
-        noteGroups,
-        currentFont?.type,
-        playGroup,
-        stopAutoPlay,
-        setStoreCurrentStep,
-    ]);
+    }, [advanceStep]);
+
+    // 캔버스 터치/클릭 시에도 동일하게 진행 (첫 포인터만 인식)
+    useEffect(() => {
+        const element = viewportRef.current;
+        if (!element) return;
+
+        const handlePointerDown = (e) => {
+            if (!e.isPrimary) return;
+            if (e.pointerType === 'mouse' && e.button !== 0) return;
+
+            e.preventDefault();
+            advanceStep();
+        };
+
+        element.addEventListener('pointerdown', handlePointerDown, {
+            passive: false,
+        });
+
+        return () => {
+            element.removeEventListener('pointerdown', handlePointerDown);
+        };
+    }, [advanceStep]);
 
     // Canvas 렌더링 루프: displayCursorTime을 부드럽게 이동시켜 노트가 스무스하게 흐름
     useEffect(() => {

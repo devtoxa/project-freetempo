@@ -150,7 +150,6 @@ export const useData = create((set) => ({
     seekToStep: (step) => {
         set((state) => ({
             currentStep: Math.max(0, Number(step) || 0),
-            isAutoPlay: false,
             seekVersion: state.seekVersion + 1,
         }));
     },

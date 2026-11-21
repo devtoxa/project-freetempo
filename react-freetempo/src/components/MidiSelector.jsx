@@ -41,7 +41,8 @@ export default function MidiSelector() {
                     onChange={handleFileChange}
                 />
             </div>
-            <hr />
+
+            <br />
             <div className="Key">[.mid 선택]</div>
             <select
                 value={currentMidiId}
