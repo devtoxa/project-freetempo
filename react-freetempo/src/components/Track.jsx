@@ -34,6 +34,9 @@ const PADDING_BOTTOM = 18;
 const FOCUS_ANCHOR_RATIO = 0.18;
 const FOCUS_SMOOTHING_MS = 120;
 
+// 마우스 휠 한 칸으로 이동할 거리(px)
+const WHEEL_STEP_PX = 50;
+
 // ==========================================
 // MIDI 파일 경로
 // ==========================================
@@ -133,6 +136,7 @@ const Track = () => {
     const canvasRef = useRef(null);
     const viewportRef = useRef(null);
     const rafIdRef = useRef(null);
+    const wheelStepRef = useRef(0);
 
     const sizeRef = useRef({
         width: 1280,
@@ -627,6 +631,76 @@ const Track = () => {
             window.removeEventListener('resize', updateSize);
         };
     }, []);
+
+    // 슬라이더/키보드로 이동한 현재 위치를 휠 스크럽 기준점과 동기화
+    useEffect(() => {
+        wheelStepRef.current = storeCurrentStep;
+    }, [storeCurrentStep]);
+
+    // 마우스 휠로 위치 이동 (스크롤 중에는 소리를 내지 않음)
+    useEffect(() => {
+        const element = viewportRef.current;
+        if (!element) return;
+
+        let accumulated = 0;
+        let resetTimer = null;
+
+        const handleWheel = (e) => {
+            e.preventDefault();
+
+            const storeState = useData.getState();
+
+            // 스크롤하는 동안은 자동 재생을 멈추고 울리는 소리를 해제
+            if (autoPlayRef.current.active || storeState.isAutoPlay) {
+                autoPlayRef.current.active = false;
+                stopAutoPlay?.();
+            }
+            synthRef.current?.releaseAll?.();
+
+            const delta =
+                e.deltaMode === 1
+                    ? e.deltaY * 16
+                    : e.deltaMode === 2
+                      ? e.deltaY * 400
+                      : e.deltaY;
+
+            accumulated += delta;
+
+            if (resetTimer) clearTimeout(resetTimer);
+            resetTimer = setTimeout(() => {
+                accumulated = 0;
+            }, 180);
+
+            const steps = Math.trunc(accumulated / WHEEL_STEP_PX);
+            if (steps === 0) return;
+
+            accumulated -= steps * WHEEL_STEP_PX;
+
+            const maxStep = Math.max(noteGroups.length - 1, 0);
+            const baseStep = Math.min(
+                Math.max(wheelStepRef.current, 0),
+                maxStep
+            );
+            const nextStep = Math.min(
+                Math.max(baseStep + steps, 0),
+                maxStep
+            );
+
+            if (nextStep === baseStep) return;
+
+            wheelStepRef.current = nextStep;
+            storeState.seekToStep(nextStep);
+        };
+
+        element.addEventListener('wheel', handleWheel, {
+            passive: false,
+        });
+
+        return () => {
+            element.removeEventListener('wheel', handleWheel);
+            if (resetTimer) clearTimeout(resetTimer);
+        };
+    }, [noteGroups.length, stopAutoPlay]);
 
     // 키보드 입력 시 다음 노트 그룹으로 진행하며 소리 재생
     useEffect(() => {
